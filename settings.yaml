@@ -1,0 +1,30 @@
+# 语言 | Language | 言語 : zh / en / ja
+language: "zh"
+
+# 数据库 | Database | データベース
+# user: 改为你的 PostgreSQL 用户名 | change to your PostgreSQL username | PostgreSQL ユーザー名に変更
+database:
+    name: "Riverse"
+    user: "postgres"
+    host: "localhost"
+
+# 画像提取使用的 LLM（openai = 远端 API / local = 本地 Ollama）
+# LLM used for profile extraction (openai = remote API / local = local Ollama)
+# 画像抽出に使用する LLM（openai = リモート API / local = ローカル Ollama）
+llm_provider: "openai"
+
+# 本地 Ollama | Local Ollama | ローカル Ollama
+local:
+    model: "qwen2.5:14b"
+    api_base: "http://localhost:11434"
+    temperature: 0.7
+    max_tokens: 2048
+
+# 远端 API | Remote API | リモート API
+# 支持 OpenAI / Anthropic 等兼容接口 | Supports OpenAI / Anthropic compatible APIs | OpenAI / Anthropic 互換 API に対応
+openai:
+    model: "gpt-4o-mini"
+    api_base: "https://api.openai.com"
+    api_key: ""
+    temperature: 0.7
+    max_tokens: 2048

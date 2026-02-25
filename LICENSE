@@ -1,0 +1,25 @@
+River Algorithm (AI Chat History Edition) — Dual License
+
+Copyright (c) 2025 River Algorithm. All rights reserved.
+
+
+1. Open Source License — AGPL-3.0
+
+   This software is licensed under the GNU Affero General Public License v3.0.
+   You may use, modify, and distribute this software under the terms of the AGPL-3.0.
+
+   Key obligations:
+   - Any modified version must also be open-sourced under AGPL-3.0.
+   - If you run a modified version as a network service, you must make the
+     complete source code available to users of that service.
+
+   Full text: https://www.gnu.org/licenses/agpl-3.0.html
+
+
+2. Commercial License
+
+   If the AGPL-3.0 terms do not fit your use case (e.g., proprietary deployment,
+   SaaS without source disclosure, or embedding in closed-source products),
+   a commercial license is available.
+
+   Contact: mailwangjk@gmail.com
