@@ -45,11 +45,19 @@
 git clone https://github.com/wangjiake/RiverHistory.git
 cd RiverHistory
 
-# 2. 安装依赖
+# 2. 创建虚拟环境并安装依赖
+python3 -m venv .venv
+source .venv/bin/activate        # macOS / Linux
+# .venv\Scripts\activate         # Windows
+
 pip install -r requirements.txt
 
 # 3. 配置
-# 编辑 settings.yaml，填入你的 LLM API Key 和数据库信息
+# 编辑 settings.yaml：
+#   - database.user: 改为你的 PostgreSQL 用户名
+#     macOS Homebrew 通常是系统用户名（终端执行 whoami 查看）
+#     Linux/Windows 通常是 postgres
+#   - openai.api_key: 填入你的 API Key（使用本地 Ollama 则改 llm_provider 为 "local"）
 
 # 4. 初始化数据库
 # 此命令会创建两个项目（本项目和 Riverse 主项目）所需的全部表。

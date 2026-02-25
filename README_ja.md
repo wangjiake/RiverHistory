@@ -45,11 +45,19 @@
 git clone https://github.com/wangjiake/RiverHistory.git
 cd RiverHistory
 
-# 2. 依存関係をインストール
+# 2. 仮想環境を作成して依存関係をインストール
+python3 -m venv .venv
+source .venv/bin/activate        # macOS / Linux
+# .venv\Scripts\activate         # Windows
+
 pip install -r requirements.txt
 
 # 3. 設定
-# settings.yaml を編集し、LLM API Keyとデータベース情報を入力
+# settings.yaml を編集：
+#   - database.user: PostgreSQL のユーザー名に変更
+#     macOS Homebrew の場合はシステムユーザー名（ターミナルで whoami を実行）
+#     Linux/Windows の場合は通常 postgres
+#   - openai.api_key: API Key を入力（ローカル Ollama を使う場合は llm_provider を "local" に変更）
 
 # 4. データベースを初期化
 # このコマンドは本プロジェクトと Riverse メインプロジェクトの両方に必要な全テーブルを作成します。

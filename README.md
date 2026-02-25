@@ -45,11 +45,19 @@ Shares the same database with the [Riverse](https://github.com/wangjiake/JKRiver
 git clone https://github.com/wangjiake/RiverHistory.git
 cd RiverHistory
 
-# 2. Install dependencies
+# 2. Create virtual environment and install dependencies
+python3 -m venv .venv
+source .venv/bin/activate        # macOS / Linux
+# .venv\Scripts\activate         # Windows
+
 pip install -r requirements.txt
 
 # 3. Configure
-# Edit settings.yaml with your LLM API key and database settings
+# Edit settings.yaml:
+#   - database.user: change to your PostgreSQL username
+#     macOS Homebrew is usually your system username (run whoami in terminal)
+#     Linux/Windows is usually postgres
+#   - openai.api_key: enter your API key (or set llm_provider to "local" for Ollama)
 
 # 4. Initialize database
 # This creates all tables needed for both this project and the Riverse main project.
