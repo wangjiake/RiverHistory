@@ -43,7 +43,7 @@
 ```bash
 # 1. リポジトリをクローン
 git clone https://github.com/wangjiake/RiverHistory.git
-cd Riverse
+cd RiverHistory
 
 # 2. 依存関係をインストール
 pip install -r requirements.txt

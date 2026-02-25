@@ -43,7 +43,7 @@ Shares the same database with the [Riverse](https://github.com/wangjiake/JKRiver
 ```bash
 # 1. Clone the repository
 git clone https://github.com/wangjiake/RiverHistory.git
-cd Riverse
+cd RiverHistory
 
 # 2. Install dependencies
 pip install -r requirements.txt
