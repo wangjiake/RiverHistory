@@ -14,6 +14,13 @@ def call_llm(messages: list[dict], config: dict) -> str:
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
+    # gpt-5/o1/o3 系列：max_completion_tokens + 不支持自定义 temperature
+    is_new_model = any(k in model for k in ("gpt-5", "o1", "o3"))
+    if is_new_model:
+        token_param = {"max_completion_tokens": max_tokens}
+    else:
+        token_param = {"max_tokens": max_tokens, "temperature": temperature}
+
     try:
         resp = requests.post(
             f"{api_base}/v1/chat/completions",
@@ -21,8 +28,7 @@ def call_llm(messages: list[dict], config: dict) -> str:
             json={
                 "model": model,
                 "messages": messages,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
+                **token_param,
             },
             timeout=120,
         )

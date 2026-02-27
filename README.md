@@ -32,13 +32,19 @@ Shares the same database with the [Riverse](https://github.com/wangjiake/JKRiver
 - Relationship mapping
 - Local web viewer (Chinese / English / Japanese)
 
+### Quick Try with Docker
+
+Don't want to install Python or PostgreSQL? **[Run with Docker](https://github.com/wangjiake/JKRiver/blob/main/docker/README.md)** — includes demo data, supports OpenAI / DeepSeek / Groq.
+
+---
+
 ### Prerequisites
 
 - Python 3.11 or 3.12
 - PostgreSQL
 - LLM API Key (e.g. OpenAI, Anthropic) or local Ollama
 
-### Quick Start
+### Quick Start (from source)
 
 ```bash
 # 1. Clone the repository

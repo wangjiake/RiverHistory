@@ -1,30 +1,53 @@
-# 语言 | Language | 言語 : zh / en / ja
+# ═══════════════════════════════════════════════════════════════
+#  RiverHistory — 对话画像提取与可视化
+#  RiverHistory — Conversation Profile Extraction & Visualization
+#  RiverHistory — 会話プロフィール抽出と可視化
+# ═══════════════════════════════════════════════════════════════
+
+
+# ─── 语言 | Language | 言語 ─────────────────────────────────
+#  界面和 AI 分析的语言 | Language for UI and AI analysis | UIとAI分析の言語
+#  zh = 中文 | en = English | ja = 日本語
 language: "zh"
 
-# 数据库 | Database | データベース
-# user: 改为你的 PostgreSQL 用户名 | change to your PostgreSQL username | PostgreSQL ユーザー名に変更
+
+# ─── 数据库 | Database | データベース ────────────────────────
+#  PostgreSQL 连接信息，需要先安装并启动 PostgreSQL
+#  PostgreSQL connection info. Install and start PostgreSQL first
+#  PostgreSQL 接続情報。先に PostgreSQL をインストールして起動してください
 database:
-    name: "Riverse"
-    user: "postgres"
-    host: "localhost"
+    name: "Riverse"                     # 数据库名 | Database name | データベース名
+    user: "postgres"                    # Windows 默认 postgres 不用改 | macOS/Linux: 终端运行 whoami 查你的用户名填这里 | Windows: そのまま / macOS・Linux: whoami で確認
+    host: "localhost"                   # 本地运行填 localhost | Use localhost for local | ローカルは localhost
 
-# 画像提取使用的 LLM（openai = 远端 API / local = 本地 Ollama）
-# LLM used for profile extraction (openai = remote API / local = local Ollama)
-# 画像抽出に使用する LLM（openai = リモート API / local = ローカル Ollama）
-llm_provider: "openai"
 
-# 本地 Ollama | Local Ollama | ローカル Ollama
-local:
-    model: "qwen2.5:14b"
-    api_base: "http://localhost:11434"
-    temperature: 0.7
-    max_tokens: 2048
+# ─── LLM 主模型 | Primary LLM | メイン LLM ──────────────────
+#  用于画像提取和分析的 AI 模型：openai = 远端 API / local = 本地 Ollama
+#  AI model for profile extraction: openai = remote API / local = local Ollama
+#  プロフィール抽出用 AI モデル: openai = リモート API / local = ローカル Ollama
+llm_provider: "openai"                  # "openai" = 用远端 API（填下面 openai 配置）| "local" = 用本地 Ollama（填下面 local 配置）| "openai": 下の openai 設定 / "local": 下の local 設定
 
-# 远端 API | Remote API | リモート API
-# 支持 OpenAI / Anthropic 等兼容接口 | Supports OpenAI / Anthropic compatible APIs | OpenAI / Anthropic 互換 API に対応
+#  ── 远端 API 配置（当 llm_provider = openai 时生效）──
+#  ── Remote API config (active when llm_provider = openai) ──
+#  ── リモート API 設定（llm_provider = openai の場合有効）──
+#  支持所有 OpenAI 兼容接口：OpenAI / DeepSeek / Groq / 本地 vLLM 等
+#  Works with any OpenAI-compatible API: OpenAI / DeepSeek / Groq / local vLLM / etc.
+#  OpenAI 互換 API に対応: OpenAI / DeepSeek / Groq / ローカル vLLM など
 openai:
-    model: "gpt-4o-mini"
-    api_base: "https://api.openai.com"
-    api_key: ""
+    model: "gpt-4o-mini"                # 模型名 | Model name | モデル名
+    api_base: "https://api.openai.com"  # API 地址 | API endpoint | APIエンドポイント
+    api_key: ""                         # 你的 API 密钥 | Your API key | APIキー
+    temperature: 0.7                    # 回复随机性 0-1 | Response randomness 0-1 | 応答のランダム性 0-1
+    max_tokens: 2048                    # 最大回复长度 | Max response length | 最大応答長
+
+#  ── 本地 Ollama 配置（当 llm_provider = local 时生效）──
+#  ── Local Ollama config (active when llm_provider = local) ──
+#  ── ローカル Ollama 設定（llm_provider = local の場合有効）──
+#  需要先安装 Ollama 并拉取模型：ollama pull qwen2.5:14b
+#  Install Ollama first, then pull model: ollama pull qwen2.5:14b
+#  先に Ollama をインストールしてモデルを取得: ollama pull qwen2.5:14b
+local:
+    model: "qwen2.5:14b"               # Ollama 模型名 | Ollama model name | Ollama モデル名
+    api_base: "http://localhost:11434"  # Ollama 地址 | Ollama address | Ollama アドレス
     temperature: 0.7
     max_tokens: 2048

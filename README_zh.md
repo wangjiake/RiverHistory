@@ -32,13 +32,19 @@
 - 人际关系图谱
 - 本地网页查看（中/英/日三语）
 
+### Docker 快速体验
+
+不想装 Python 和 PostgreSQL？**[用 Docker 即可体验](https://github.com/wangjiake/JKRiver/blob/main/docker/README.md)** — 自带演示数据，支持 OpenAI / DeepSeek / Groq。
+
+---
+
 ### 前置要求
 
 - Python 3.11 或 3.12
 - PostgreSQL
 - LLM API Key（如 OpenAI、Anthropic 等）或本地 Ollama
 
-### 快速开始
+### 快速开始（从源码）
 
 ```bash
 # 1. 克隆仓库

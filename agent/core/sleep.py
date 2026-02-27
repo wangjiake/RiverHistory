@@ -329,7 +329,15 @@ def classify_observations(observations: list[dict],
     ]
     raw = call_llm(messages, llm_config)
     results = _parse_json_array(raw)
-    return [r for r in results if isinstance(r, dict) and r.get("action")]
+    cleaned = []
+    for r in results:
+        if not isinstance(r, dict):
+            continue
+        if not r.get("action"):
+            r["action"] = "new"
+            r.setdefault("reason", "LLM未返回action，自动补为new")
+        cleaned.append(r)
+    return cleaned
 
 
 def create_new_facts(new_observations: list[dict],
