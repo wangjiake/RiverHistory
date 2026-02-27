@@ -34,7 +34,7 @@ Shares the same database with the [Riverse](https://github.com/wangjiake/JKRiver
 
 ### Quick Try with Docker
 
-Don't want to install Python or PostgreSQL? **[Run with Docker](https://github.com/wangjiake/JKRiver/blob/main/docker/README.md)** — includes demo data, supports OpenAI / DeepSeek / Groq.
+Don't want to install Python or PostgreSQL? **[Run with Docker](https://github.com/wangjiake/Riverse-Docker)** — includes demo data, supports OpenAI / DeepSeek / Groq.
 
 ---
 

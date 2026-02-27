@@ -34,7 +34,7 @@
 
 ### Docker 快速体验
 
-不想装 Python 和 PostgreSQL？**[用 Docker 即可体验](https://github.com/wangjiake/JKRiver/blob/main/docker/README.md)** — 自带演示数据，支持 OpenAI / DeepSeek / Groq。
+不想装 Python 和 PostgreSQL？**[用 Docker 即可体验](https://github.com/wangjiake/Riverse-Docker)** — 自带演示数据，支持 OpenAI / DeepSeek / Groq。
 
 ---
 

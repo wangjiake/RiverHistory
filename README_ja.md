@@ -34,7 +34,7 @@
 
 ### Docker でクイック体験
 
-Python や PostgreSQL 不要。**[Docker ですぐに体験](https://github.com/wangjiake/JKRiver/blob/main/docker/README.md)** — デモデータ付き、OpenAI / DeepSeek / Groq 対応。
+Python や PostgreSQL 不要。**[Docker ですぐに体験](https://github.com/wangjiake/Riverse-Docker)** — デモデータ付き、OpenAI / DeepSeek / Groq 対応。
 
 ---
 
