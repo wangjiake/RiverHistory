@@ -86,12 +86,20 @@ def _format_trajectory_block(trajectory: dict | None, language: str = "zh") -> s
 
 
 def _format_profile_for_llm(profile: list[dict], timeline: list[dict] | None = None,
-                            language: str = "zh") -> str:
+                            language: str = "zh", max_items: int = 80) -> str:
     """把画像列表格式化为 LLM 可读文本（v14: 双层画像 + 时间线）。"""
     if not profile:
         return get_label("no_profile", language)
+
+    # 排序：confirmed 优先，mention_count 高优先；截断到 max_items
+    sorted_profile = sorted(profile,
+                            key=lambda p: (0 if p.get("layer") == "confirmed" else 1,
+                                           -(p.get("mention_count") or 1)))
+    if max_items and len(sorted_profile) > max_items:
+        sorted_profile = sorted_profile[:max_items]
+
     text = ""
-    for p in profile:
+    for p in sorted_profile:
         ev = p.get("evidence", [])
         layer = p.get("layer", "suspected")
         mention_count = p.get("mention_count", 1) or 1
@@ -1266,7 +1274,7 @@ def run(fallback_time=None):
     all_observations = []
 
     # 预加载已有画像（v14: user_profile）
-    existing_profile = load_full_current_profile()
+    existing_profile = load_full_current_profile(exclude_superseded=True)
 
     # Step 0: 预加载轨迹
     trajectory = load_trajectory_summary()
@@ -1367,7 +1375,7 @@ def run(fallback_time=None):
     behavioral_signals = []
     if all_observations and len(all_observations) >= 1:
         print("  [sleep] analyzing behavioral patterns...")
-        current_profile = load_full_current_profile()
+        current_profile = load_full_current_profile(exclude_superseded=True)
         behavioral_signals = analyze_behavioral_patterns(
             all_observations, current_profile, trajectory, config,
             language=language
@@ -1421,7 +1429,7 @@ def run(fallback_time=None):
 
     # ═══ Step 4: 分步画像更新（v14 拆分版）═══
     print("  [sleep] classifying observations...")
-    current_profile = load_full_current_profile()
+    current_profile = load_full_current_profile(exclude_superseded=True)
     timeline = load_timeline()
 
     # 辅助：按 fact_id 查找画像
@@ -1789,7 +1797,7 @@ def run(fallback_time=None):
     # Step 6: 分析用户模型 → user_model
     print("  [sleep] analyzing user model...")
     if all_convs:
-        current_profile_for_model = load_full_current_profile()
+        current_profile_for_model = load_full_current_profile(exclude_superseded=True)
         model_results = analyze_user_model(all_convs, config,
                                            current_profile=current_profile_for_model,
                                            language=language)
@@ -1835,12 +1843,12 @@ def run(fallback_time=None):
         should_update_trajectory = True
 
     if not trajectory:
-        current_profile = load_full_current_profile()
+        current_profile = load_full_current_profile(exclude_superseded=True)
         if current_profile:
             should_update_trajectory = True
 
     if should_update_trajectory:
-        current_profile = load_full_current_profile()
+        current_profile = load_full_current_profile(exclude_superseded=True)
         if current_profile:
             trajectory_result = generate_trajectory_summary(
                 current_profile, config, new_observations=all_observations,
@@ -1868,7 +1876,7 @@ def run(fallback_time=None):
     # Step 7.6: 预编译 memory_snapshot
     print("  [sleep] generating memory snapshot...")
     try:
-        final_profile = load_full_current_profile()
+        final_profile = load_full_current_profile(exclude_superseded=True)
         snapshot_text = format_profile_text(
             final_profile, max_entries=40, detail="full", language=language
         )
