@@ -65,7 +65,14 @@ def load_all(count: int = 0) -> list:
     finally:
         conn.close()
 
-    all_rows.sort(key=lambda r: r["conversation_time"] or datetime.min)
+    def _sort_key(r):
+        t = r["conversation_time"]
+        if t is None:
+            return datetime.min
+        # 统一去掉时区信息用于排序
+        return t.replace(tzinfo=None) if hasattr(t, 'tzinfo') and t.tzinfo else t
+
+    all_rows.sort(key=_sort_key)
 
     if count > 0:
         all_rows = all_rows[:count]
@@ -107,7 +114,7 @@ def process_one(row: dict, config: dict, idx: int, total: int):
     for i, turn in enumerate(turns, 1):
         user_input = turn["user_input"]
         assistant_reply = turn["assistant_reply"]
-        timestamp = turn["timestamp"] + timedelta(minutes=(i - 1) * 5)
+        timestamp = (turn["timestamp"] or session_created_at or datetime.now()) + timedelta(minutes=(i - 1) * 5)
 
         print(f"  Turn {i}/{len(turns)}: {user_input[:60]}{'...' if len(user_input) > 60 else ''}")
 

@@ -53,7 +53,9 @@ from agent.storage import (
     save_trajectory_summary, load_trajectory_summary,
     load_active_events,
     save_or_update_relationship, load_relationships,
+    save_memory_snapshot,
 )
+from agent.utils.profile_filter import prepare_profile, format_profile_text
 
 
 # (Prompts moved to sleep_prompts.py — use get_prompt(name, language))
@@ -152,6 +154,30 @@ def _calculate_maturity_decay(span_days: int, evidence_count: int,
     return current_decay
 
 
+def _consolidate_profile(language="zh"):
+    """合并同 category+subject 的冗余条目，只保留最新的。"""
+    all_profile = load_full_current_profile()
+    from collections import defaultdict
+    groups = defaultdict(list)
+    for p in all_profile:
+        groups[(p["category"], p["subject"])].append(p)
+
+    for (cat, subj), entries in groups.items():
+        if len(entries) <= 1:
+            continue
+        entries.sort(key=lambda x: x.get("updated_at") or x.get("created_at") or datetime.min, reverse=True)
+        keeper = entries[0]
+        for old in entries[1:]:
+            if old["id"] == keeper["id"]:
+                continue
+            if old.get("superseded_by") or old.get("end_time"):
+                continue
+            old_evidence = old.get("evidence", [])
+            if old_evidence and isinstance(old_evidence, list):
+                add_evidence(keeper["id"], {"merged_from": old["id"]})
+            close_time_period(old["id"])
+
+
 # ══════════════════════════════════════════════════════════════
 # 提取函数
 # ══════════════════════════════════════════════════════════════
@@ -184,10 +210,11 @@ def extract_observations_and_tags(conversations: list[dict], config: dict,
     if not text.strip():
         return {"observations": [], "tags": []}
 
-    # 组装已知信息块（当前画像，双层标签）
+    # 组装已知信息块（当前画像，双层标签）— 截断到 top 25
     known_lines = []
     if existing_profile:
-        for p in existing_profile:
+        top_profile, _ = prepare_profile(existing_profile, max_entries=25, language=language)
+        for p in top_profile:
             layer = p.get("layer", "suspected")
             layer_tag = get_label("layer_confirmed", language) if layer == "confirmed" else get_label("layer_suspected", language)
             known_lines.append(
@@ -561,11 +588,13 @@ def generate_strategies(changed_items: list[dict], config: dict,
             items_text += f" (source={item['source_type']})"
         items_text += "\n"
 
-    # 用户画像概览（帮助生成更贴切的策略）
+    # 用户画像概览（截断到 top 15）
     profile_context = ""
     if current_profile:
+        _strat_query = " ".join(item.get("category", "") + " " + item.get("subject", "") for item in changed_items)
+        top_profile, _ = prepare_profile(current_profile, query_text=_strat_query, max_entries=15, language=language)
         profile_lines = []
-        for p in current_profile:
+        for p in top_profile:
             layer_tag = get_label("layer_confirmed", language) if p.get("layer") == "confirmed" else get_label("layer_suspected", language)
             profile_lines.append(f"  {layer_tag} [{p['category']}] {p['subject']}: {p['value']}")
         profile_context = get_label("profile_overview_header", language) + "\n".join(profile_lines) + "\n"
@@ -624,11 +653,12 @@ def analyze_user_model(conversations: list[dict], config: dict,
     else:
         existing_block = get_label("no_existing_model", language)
 
-    # 用户画像概览（帮助理解用户身份背景，提升分析质量）
+    # 用户画像概览（截断到 top 20）
     profile_block = ""
     if current_profile:
+        top_profile, _ = prepare_profile(current_profile, max_entries=20, language=language)
         profile_lines = []
-        for p in current_profile:
+        for p in top_profile:
             layer_tag = get_label("layer_confirmed", language) if p.get("layer") == "confirmed" else get_label("layer_suspected", language)
             profile_lines.append(f"  {layer_tag} [{p['category']}] {p['subject']}: {p['value']}")
         profile_block = get_label("profile_overview_header", language) + "\n".join(profile_lines) + "\n"
@@ -655,10 +685,11 @@ def analyze_behavioral_patterns(observations: list[dict],
     if not observations or len(observations) < 1:
         return []
 
-    # 格式化画像（双层标签）
-    profile_text = ""
+    # 格式化画像（截断到 top 20）
     if current_profile:
-        for p in current_profile:
+        top_profile, _ = prepare_profile(current_profile, max_entries=20, language=language)
+        profile_text = ""
+        for p in top_profile:
             layer_tag = get_label("layer_confirmed", language) if p.get("layer") == "confirmed" else get_label("layer_suspected", language)
             profile_text += f"  {layer_tag} [{p['category']}] {p['subject']}: {p['value']}\n"
     else:
@@ -941,7 +972,7 @@ def generate_trajectory_summary(current_profile: list[dict],
         new_obs_text = "（本次无新观察）\n"
 
     # 历史观察（全量，帮助理解用户变化轨迹）
-    historical_obs = load_observations(limit=200)
+    historical_obs = load_observations(limit=80)
     hist_obs_text = ""
     if historical_obs:
         for o in historical_obs:
@@ -1406,10 +1437,45 @@ def run(fallback_time=None):
     _all_conv_times = [o["_conv_time"] for o in all_observations if o.get("_conv_time")]
     latest_conv_time = max(_all_conv_times) if _all_conv_times else fallback_time
 
+    # 预计算 obs_query 供各步骤使用
+    obs_query = " ".join(o.get("subject", "") for o in all_observations if o.get("subject"))
+
+    # 初始化变更计数（在 if 块外，供后续使用）
+    changed_items = []
+    new_fact_count = 0
+    contradict_count = 0
+
     if all_observations:
-        # Step 4a: 分类每条观察
+        # Step 4a: 动态范围选择 classify_observations 的 profile
+        obs_subjects = set(o.get("subject", "") for o in all_observations if o.get("subject"))
+        has_contradictions = any(o.get("type") == "contradiction" for o in all_observations)
+
+        if has_contradictions:
+            # 有直接矛盾 → 全量
+            classify_profile = current_profile
+        elif len(obs_subjects) <= 3:
+            # 窄话题 → 相关 category + 最近 3 个月
+            three_months_ago = datetime.now() - timedelta(days=90)
+            obs_categories = set()
+            for o in all_observations:
+                if o.get("subject"):
+                    obs_categories.add(o.get("subject", ""))
+            classify_profile = [
+                p for p in current_profile
+                if p.get("subject") in obs_subjects
+                or p.get("category") in obs_categories
+                or (p.get("updated_at") and p["updated_at"].replace(tzinfo=None) >= three_months_ago)
+            ]
+            if not classify_profile:
+                classify_profile = current_profile
+        else:
+            # 宽话题 → fallback 排序 top 80
+            classify_profile, _ = prepare_profile(
+                current_profile, query_text=obs_query, max_entries=80, language=language
+            )
+
         classifications = classify_observations(
-            all_observations, current_profile, config, timeline,
+            all_observations, classify_profile, config, timeline,
             trajectory=trajectory, language=language
         )
 
@@ -1477,8 +1543,6 @@ def run(fallback_time=None):
                 pass
 
         # Step 4b: 创建新画像（只处理 "new" 类观察）
-        new_fact_count = 0
-        changed_items = []  # 收集变更，供 Step 4d 策略生成
         if new_obs_cls:
             print(f"  [sleep] creating {len(new_obs_cls)} new facts...")
             new_obs_data = []
@@ -1490,8 +1554,9 @@ def run(fallback_time=None):
             if new_obs_data:
                 _new_obs_times = [o.get("_conv_time") for o in new_obs_data if o.get("_conv_time")]
                 _new_batch_time = max(_new_obs_times) if _new_obs_times else None
+                _create_profile, _ = prepare_profile(current_profile, query_text=obs_query, max_entries=15, language=language)
                 new_facts = create_new_facts(
-                    new_obs_data, current_profile, config, behavioral_signals,
+                    new_obs_data, _create_profile, config, behavioral_signals,
                     trajectory=trajectory, language=language
                 )
                 for nf in new_facts:
@@ -1752,7 +1817,21 @@ def run(fallback_time=None):
     prev_session_count = trajectory.get("session_count", 0) if trajectory else 0
     sessions_since_update = total_sessions - prev_session_count
 
-    if sessions_since_update >= 3:
+    has_significant_change = (
+        confirmed_count > 0
+        or dispute_resolved > 0
+        or contradict_count > 0
+        or any(
+            item.get("category", "").lower() in ("职业", "career", "家庭", "family", "居住", "住所",
+                                                   "education", "教育", "健康", "health", "location")
+            for item in changed_items
+        )
+    )
+
+    if has_significant_change and sessions_since_update >= 2:
+        should_update_trajectory = True
+    elif sessions_since_update >= 10:
+        # 兜底：太久没更新也触发
         should_update_trajectory = True
 
     if not trajectory:
@@ -1780,6 +1859,39 @@ def run(fallback_time=None):
             pass
     else:
         pass
+
+    # Step 7.5: Profile 去重合并（只在有新 fact 或矛盾解决时）
+    if new_fact_count > 0 or dispute_resolved > 0:
+        print("  [sleep] consolidating profile...")
+        _consolidate_profile(language=language)
+
+    # Step 7.6: 预编译 memory_snapshot
+    print("  [sleep] generating memory snapshot...")
+    try:
+        final_profile = load_full_current_profile()
+        snapshot_text = format_profile_text(
+            final_profile, max_entries=40, detail="full", language=language
+        )
+
+        user_model_data = load_user_model()
+        if user_model_data:
+            model_lines = [f"  {m['dimension']}: {m['assessment']}" for m in user_model_data]
+            snapshot_text += "\n\n用户特征：\n" + "\n".join(model_lines)
+
+        events_data = load_active_events(top_k=5)
+        if events_data:
+            event_lines = [f"  [{e['category']}] {e['summary']}" for e in events_data]
+            snapshot_text += "\n\n近期事件：\n" + "\n".join(event_lines)
+
+        relationships_data = load_relationships()
+        if relationships_data:
+            rel_lines = [f"  {r['relation']}: {r.get('name', '?')}" for r in relationships_data[:10]]
+            snapshot_text += "\n\n人际关系：\n" + "\n".join(rel_lines)
+
+        save_memory_snapshot(snapshot_text, profile_count=len(final_profile))
+        print("  [sleep] snapshot saved")
+    except Exception as e:
+        print(f"  [sleep] snapshot failed: {e}")
 
     # Step 8: 标记已处理
     mark_processed(all_msg_ids)

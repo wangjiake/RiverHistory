@@ -1734,3 +1734,43 @@ def _parse_demo(content: dict, conversation_time) -> list[dict]:
                     "timestamp": conversation_time,
                 })
     return turns
+
+
+def save_memory_snapshot(text: str, profile_count: int = 0):
+    """保存预编译的记忆快照"""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "CREATE TABLE IF NOT EXISTS memory_snapshot ("
+                "  id SERIAL PRIMARY KEY,"
+                "  snapshot_text TEXT NOT NULL,"
+                "  profile_count INTEGER DEFAULT 0,"
+                "  created_at TIMESTAMPTZ DEFAULT NOW()"
+                ")"
+            )
+            cur.execute(
+                "INSERT INTO memory_snapshot (snapshot_text, profile_count) "
+                "VALUES (%s, %s)",
+                (text, profile_count),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def load_memory_snapshot() -> dict | None:
+    """加载最新快照"""
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "SELECT snapshot_text, profile_count, created_at "
+                "FROM memory_snapshot ORDER BY id DESC LIMIT 1"
+            )
+            row = cur.fetchone()
+            return _as_dict(row)
+    except Exception:
+        return None
+    finally:
+        conn.close()
