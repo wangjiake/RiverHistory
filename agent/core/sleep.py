@@ -738,6 +738,24 @@ def cross_verify_suspected_facts(suspected_facts: list[dict], config: dict,
     if not suspected_facts:
         return []
 
+    # ── 规则预处理：source_type=stated + mention_count>=2 → 直接确认 ──
+    rule_results = []
+    llm_candidates = []
+    for f in suspected_facts:
+        mc = f.get("mention_count") or 1
+        if f.get("source_type") == "stated" and mc >= 2:
+            rule_results.append({"fact_id": f["id"], "action": "confirm",
+                                 "reason": "规则：stated+mention>=2直接确认"})
+        else:
+            llm_candidates.append(f)
+
+    if not llm_candidates:
+        return rule_results
+
+    # 按 mention_count 降序，限制最多 80 条发给 LLM
+    llm_candidates.sort(key=lambda f: -(f.get("mention_count") or 1))
+    llm_candidates = llm_candidates[:80]
+
     # 预加载全量画像，用于查找被取代的旧事实
     all_current = load_full_current_profile()
     all_facts_map = {p["id"]: p for p in all_current}
@@ -745,7 +763,7 @@ def cross_verify_suspected_facts(suspected_facts: list[dict], config: dict,
     # 格式化怀疑画像
     items_text = ""
     seen_subjects = set()  # 收集 (category, subject) 用于加载时间线
-    for f in suspected_facts:
+    for f in llm_candidates:
         ev = f.get("evidence", [])
         mention_count = f.get("mention_count", 1) or 1
         start = f["start_time"].strftime("%Y-%m-%d") if f.get("start_time") else "?"
@@ -791,13 +809,16 @@ def cross_verify_suspected_facts(suspected_facts: list[dict], config: dict,
                         tag = "[矛盾中]" if t.get("superseded_by") else f"[{layer}]"
                         timeline_context += f"  {t['value']} ({t_start} ~ 至今) {tag}\n"
 
-    # 按 subject 分类加载相关对话摘要作为佐证
+    # 按 subject 分类加载相关对话摘要作为佐证（限最近 3 个月）
     obs_context = ""
+    three_months_ago = datetime.now() - timedelta(days=90)
     for cat, subj in seen_subjects:
         if not subj:
             continue
         subj_summaries = load_summaries_by_observation_subject(subject=subj)
         all_subj = subj_summaries.get("before", [])
+        all_subj = [s for s in all_subj
+                     if s.get('user_input_at') and s['user_input_at'].replace(tzinfo=None) >= three_months_ago]
         if all_subj:
             obs_context += f"\n[{cat}] {subj} 相关对话摘要：\n"
             for s in all_subj[-30:]:
@@ -827,8 +848,9 @@ def cross_verify_suspected_facts(suspected_facts: list[dict], config: dict,
         {"role": "user", "content": user_content},
     ]
     raw = call_llm(messages, llm_config)
-    results = _parse_json_array(raw)
-    return [r for r in results if isinstance(r, dict) and r.get("fact_id") and r.get("action")]
+    llm_results = _parse_json_array(raw)
+    llm_results = [r for r in llm_results if isinstance(r, dict) and r.get("fact_id") and r.get("action")]
+    return rule_results + llm_results
 
 
 def resolve_disputes_with_llm(disputed_pairs: list[dict], config: dict,
@@ -840,8 +862,51 @@ def resolve_disputes_with_llm(disputed_pairs: list[dict], config: dict,
     if not disputed_pairs:
         return []
 
-    items_text = ""
+    # ── 规则预处理 ──
+    rule_results = []
+    llm_candidates = []
+    now = datetime.now()
     for pair in disputed_pairs:
+        old = pair["old"]
+        new = pair["new"]
+        new_mc = new.get("mention_count") or 1
+        old_mc = old.get("mention_count") or 1
+        new_start = new.get("start_time")
+        old_start = old.get("start_time")
+
+        # 规则1：新值 mention_count>=2 且时间更新 → accept_new
+        if new_mc >= 2 and new_start and old_start and new_start > old_start:
+            rule_results.append({
+                "old_fact_id": old["id"], "new_fact_id": new["id"],
+                "action": "accept_new",
+                "reason": "规则：新值mention>=2且时间更新"
+            })
+            continue
+
+        # 规则2：争议超过 90 天无新证据 → mention_count 高的胜出
+        dispute_age = (now - new_start.replace(tzinfo=None)).days if new_start else 0
+        if dispute_age > 90:
+            if new_mc > old_mc:
+                rule_results.append({
+                    "old_fact_id": old["id"], "new_fact_id": new["id"],
+                    "action": "accept_new",
+                    "reason": f"规则：争议{dispute_age}天，新值mention更高"
+                })
+            else:
+                rule_results.append({
+                    "old_fact_id": old["id"], "new_fact_id": new["id"],
+                    "action": "reject_new",
+                    "reason": f"规则：争议{dispute_age}天，旧值mention更高"
+                })
+            continue
+
+        llm_candidates.append(pair)
+
+    if not llm_candidates:
+        return rule_results
+
+    items_text = ""
+    for pair in llm_candidates:
         old = pair["old"]
         new = pair["new"]
 
@@ -948,9 +1013,10 @@ def resolve_disputes_with_llm(disputed_pairs: list[dict], config: dict,
         {"role": "user", "content": user_content},
     ]
     raw = call_llm(messages, llm_config)
-    results = _parse_json_array(raw)
-    return [r for r in results if isinstance(r, dict)
-            and r.get("old_fact_id") and r.get("new_fact_id") and r.get("action")]
+    llm_results = _parse_json_array(raw)
+    llm_results = [r for r in llm_results if isinstance(r, dict)
+                   and r.get("old_fact_id") and r.get("new_fact_id") and r.get("action")]
+    return rule_results + llm_results
 
 
 def generate_trajectory_summary(current_profile: list[dict],
