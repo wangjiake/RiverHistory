@@ -1518,6 +1518,7 @@ def run(fallback_time=None):
     changed_items = []
     new_fact_count = 0
     contradict_count = 0
+    affected_fact_ids = set()  # 增量 cross_verify / resolve_disputes 用
 
     if all_observations:
         # Step 4a: 动态范围选择 classify_observations 的 profile
@@ -1585,6 +1586,20 @@ def run(fallback_time=None):
                     update_observation_classification(db_id, action)
 
         print(f"  [sleep] classified: {len(supports)} support, {len(contradictions)} contradict, {len(new_obs_cls)} new")
+
+        # 收集本轮受影响的 fact_id（供增量 cross_verify / resolve_disputes）
+        for s in supports:
+            fid = s.get("fact_id")
+            if fid:
+                affected_fact_ids.add(fid)
+        for c in contradictions:
+            fid = c.get("fact_id")
+            if fid:
+                affected_fact_ids.add(fid)
+        for ea in evidence_against_list:
+            fid = ea.get("fact_id")
+            if fid:
+                affected_fact_ids.add(fid)
 
         # 处理 support → 追加证据 + mention_count
         for s in supports:
@@ -1659,6 +1674,8 @@ def run(fallback_time=None):
                         start_time=_new_batch_time,
                     )
                     new_fact_count += 1
+                    if fact_id:
+                        affected_fact_ids.add(fact_id)
                     changed_items.append({
                         "change_type": "new",
                         "category": nf["category"],
@@ -1704,6 +1721,8 @@ def run(fallback_time=None):
                     start_time=_obs_time,
                 )
                 contradict_count += 1
+                if new_id:
+                    affected_fact_ids.add(new_id)
                 changed_items.append({
                     "change_type": "contradict",
                     "category": fact["category"],
@@ -1746,9 +1765,13 @@ def run(fallback_time=None):
     else:
         print("  [sleep] no new observations, skip")
 
-    # Step 5: 交叉验证（v14: suspected → confirmed）
-    print("  [sleep] cross-verifying suspected facts...")
-    suspected_facts = load_suspected_profile()
+    # Step 5: 交叉验证（v14: suspected → confirmed）— 增量：只验证本轮受影响的 facts
+    all_suspected = load_suspected_profile()
+    if affected_fact_ids:
+        suspected_facts = [f for f in all_suspected if f["id"] in affected_fact_ids]
+    else:
+        suspected_facts = all_suspected  # 无 classify 结果时保持全量（兜底）
+    print(f"  [sleep] cross-verifying {len(suspected_facts)}/{len(all_suspected)} suspected facts (incremental)...")
     confirmed_count = 0
 
     if suspected_facts:
@@ -1771,9 +1794,15 @@ def run(fallback_time=None):
 
     print(f"  [sleep] {confirmed_count} confirmed, {len(suspected_facts) - confirmed_count} still suspected")
 
-    # Step 5.1: 矛盾争议解决
-    print("  [sleep] resolving disputes...")
-    disputed_pairs = load_disputed_facts()
+    # Step 5.1: 矛盾争议解决 — 增量：只处理本轮受影响的 facts
+    all_disputed = load_disputed_facts()
+    if affected_fact_ids:
+        disputed_pairs = [p for p in all_disputed
+                          if p["old"]["id"] in affected_fact_ids
+                          or p["new"]["id"] in affected_fact_ids]
+    else:
+        disputed_pairs = all_disputed
+    print(f"  [sleep] resolving {len(disputed_pairs)}/{len(all_disputed)} disputes (incremental)...")
     dispute_resolved = 0
     if disputed_pairs:
         judgments = resolve_disputes_with_llm(disputed_pairs, config, trajectory=trajectory, language=language)

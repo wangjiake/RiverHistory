@@ -485,9 +485,26 @@ Output JSON array:
 
 {categorization_history}
 
-═══ 规则 ═══
+═══ 什么值得创建 ═══
+判断标准：下个月用户再来聊天，知道这件事能帮我更好地回应他吗？
+
+创建：
+- 身份属性（姓名、年龄、性别、国籍、居住地）
+- 持续状态（职业、健康问题、感情状态、正在进行的项目）
+- 稳定偏好（饮食习惯、运动方式、购物偏好、沟通风格）
+- 重要经历（搬家、换工作、生病、毕业）
+
+不创建：
+- 一次性知识提问（"XX是什么""怎么做XX"）→ 问完即忘，不是用户特征
+- 对话中的临时指令（"帮我翻译这段""格式化这个JSON"）
+- 他人信息、计划/愿望、未确认的观点/立场
+- value 以"询问""了解""什么是"开头 → 这描述的是行为，不是属性
+
+═══ 格式规则 ═══
+- category 用最宽泛的人物画像一级分类（如：健康、职业、饮食、居住），细分领域写在 subject 里。不要把二级分类写进 category。
+  正确：category="健康" subject="用药"　　错误：category="用药方法" subject="中药信息"
+  正确：category="健身" subject="运动习惯"　错误：category="运动与健康" subject="健身时长"
 - value 写简短属性值（城市名/职位名/校名），不写句子
-- 别人的信息不创建，计划/愿望不创建
 - 年龄换算：用户说"今年22" → value="约{birth_year}年出生"
 - 兴趣类：一个爱好一条记录
 - decay_days：3650=身份/背景（姓名、性别、出生年、家乡、学校、专业）, 540=居住地/职业/长期爱好/宠物, 365=感情关系, 120-180=中期兴趣, 60=短期状态, 14-30=临时行为
@@ -514,9 +531,26 @@ Output JSON array:
 
 {categorization_history}
 
-═══ Rules ═══
+═══ What is worth creating ═══
+Key question: If this user comes back next month, would knowing this help me respond better?
+
+Create:
+- Identity attributes (name, age, gender, nationality, residence)
+- Ongoing states (career, health issues, relationship status, active projects)
+- Stable preferences (diet habits, exercise routine, shopping preferences, communication style)
+- Significant life events (moving, job change, illness, graduation)
+
+Do NOT create:
+- One-off knowledge questions ("what is X" "how to do Y") → asked and forgotten, not a user trait
+- Temporary instructions ("translate this" "format this JSON")
+- Others' information, plans/wishes, unconfirmed opinions
+- value starting with "asking about" "learning about" "what is" → describes behavior, not an attribute
+
+═══ Format rules ═══
+- category must be a broad top-level classification (e.g. health, career, diet, residence). Put specific aspects in subject, not category.
+  Correct: category="health" subject="medication"　Wrong: category="medication method" subject="TCM info"
+  Correct: category="fitness" subject="exercise routine"　Wrong: category="exercise and health" subject="workout duration"
 - value should be a brief attribute value (city name/job title/school name), not a sentence
-- Do not create facts for others' info or plans/wishes
 - Age conversion: user says "I'm 22" → value="born around {birth_year}"
 - Hobbies: one record per hobby
 - decay_days: 3650=identity/background (name, gender, birth year, hometown, school, major), 540=residence/career/long-term hobbies/pets, 365=relationships, 120-180=medium-term interests, 60=short-term states, 14-30=temporary behaviors
@@ -543,9 +577,26 @@ Return [] if nothing to create""",
 
 {categorization_history}
 
-═══ ルール ═══
+═══ 作成すべきもの ═══
+判断基準：来月ユーザーが戻ってきた時、この情報を知っていればより良い対応ができるか？
+
+作成する：
+- 身元属性（名前、年齢、性別、国籍、居住地）
+- 継続的な状態（職業、健康問題、恋愛状況、進行中のプロジェクト）
+- 安定した嗜好（食習慣、運動方法、買い物の好み、コミュニケーションスタイル）
+- 重要な経験（引っ越し、転職、病気、卒業）
+
+作成しない：
+- 一回限りの知識質問（「XXとは」「XXのやり方」）→ 聞いて終わり、ユーザー特徴ではない
+- 会話中の一時的な指示（「これを翻訳して」「このJSONを整形して」）
+- 他人の情報、計画/願望、未確認の意見
+- valueが「質問」「調べ」「とは何か」で始まる → 行動の記述であり、属性ではない
+
+═══ フォーマットルール ═══
+- category は最も広い一次分類を使う（例：健康、職業、食事、居住）。細分はsubjectに書く。二次分類をcategoryに入れない。
+  正しい：category="健康" subject="服薬"　　誤り：category="服薬方法" subject="漢方情報"
+  正しい：category="フィットネス" subject="運動習慣"　誤り：category="運動と健康" subject="トレーニング時間"
 - value は簡潔な属性値（都市名/職位名/学校名）、文ではない
-- 他人の情報や計画/願望は作成しない
 - 年齢変換：ユーザーが「今年22歳」→ value="約{birth_year}年生まれ"
 - 趣味：1つの趣味につき1レコード
 - decay_days：3650=アイデンティティ/背景（名前、性別、生年、出身地、学校、専攻）、540=居住地/職業/長期趣味/ペット、365=恋愛関係、120-180=中期的趣味、60=短期状態、14-30=一時的行動
