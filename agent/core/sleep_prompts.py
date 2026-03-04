@@ -378,6 +378,13 @@ Only extract events with real significance. Casual chat and knowledge Q&A don't 
 - category="居住城市"（"搬到XX""在XX租房""到XX入职"）→ 如果画像有 category="居住城市" 则 contradict；如果没有则归为 new，绝不 contradict 出生地
 - "职位"只存岗位名称（如"助理建筑师""设计管理"），不要存城市名
 
+语义匹配（重要！不要只做字面匹配，要理解行为背后暗示的属性）：
+- "清洗眼镜""擦眼镜" → support 已有的视力/近视/眼镜相关 fact
+- "在上野吃饭""去秋叶原" → support 已有的"居住城市: 东京"
+- "计算卡路里""称体重" → support 已有的减脂/饮食管理 fact
+- "讨论日语词汇" → support 已有的日语学习/语言 fact
+- 行为暗示的属性与已有 fact 语义相关时，优先判定为 support，而非 new
+
 注意时间顺序：观察按会话时间排序，越新越代表当前状态。
 
 重要：每条观察都必须输出分类结果（包括 irrelevant），不允许跳过任何一条。
@@ -418,6 +425,13 @@ Hometown vs current city (important! These are two different categories, don't c
 - category="city" ("moved to X" "renting in X" "started work in X") → if profile has category="city" then contradict; if not then new, NEVER contradict hometown
 - "job_title" only stores the role name (e.g. "software engineer" "design manager"), not city names
 
+Semantic matching (important! Don't just match literally — understand the attribute implied by a behavior):
+- "cleaning glasses" "wiping lenses" → support existing vision/glasses-related fact
+- "eating in Ueno" "went to Akihabara" → support existing "city: Tokyo" fact
+- "counting calories" "weighing food" → support existing diet/weight-loss fact
+- "discussing Japanese vocabulary" → support existing Japanese language fact
+- When a behavior implies an attribute that semantically relates to an existing fact, classify as support, not new
+
 Note time order: Observations are sorted by session time, newer = more representative of current state.
 
 Important: Every observation must have a classification result (including irrelevant), do not skip any.
@@ -457,6 +471,13 @@ Output JSON array:
 - category="出身地"（「XX出身」「実家はXX」）は永久アンカー、引越しは出身地の矛盾ではない
 - category="居住都市"（「XXに引っ越した」「XXで賃貸」）→ 居住都市の画像があれば contradict
 - 「職位」は役職名のみ（「ソフトウェアエンジニア」等）、都市名は不可
+
+意味的マッチング（重要！字面だけでなく、行動が暗示する属性を理解すること）：
+- 「メガネを拭いている」→ 既存の視力/メガネ関連 fact を support
+- 「上野で食事した」「秋葉原に行った」→ 既存の「居住都市: 東京」を support
+- 「カロリーを計算」→ 既存のダイエット/食事管理 fact を support
+- 「日本語の語彙を議論」→ 既存の日本語学習 fact を support
+- 行動が暗示する属性が既存 fact と意味的に関連する場合、new ではなく support を優先
 
 時間順序に注意：観察はセッション時間順、新しいほど現在の状態を代表。
 
@@ -499,6 +520,14 @@ Output JSON array:
 - 对话中的临时指令（"帮我翻译这段""格式化这个JSON"）
 - 他人信息、计划/愿望、未确认的观点/立场
 - value 以"询问""了解""什么是"开头 → 这描述的是行为，不是属性
+- 每日数值波动（今天体重XX、今天体脂XX）→ 不要每次创建新 fact，应在 classify 阶段 support 已有记录
+
+═══ 行为→属性推断（重要！）═══
+观察描述的是行为时，提取行为背后暗示的持久属性，不要记录行为本身：
+- "用户清洗眼镜" → category="身体特征" subject="视力" value="戴眼镜"
+- "用户在便利店用日语交流" → category="语言" subject="日语水平" value="具备日常会话能力"
+- "用户讨论健身房器械" → category="健身" subject="运动方式" value="健身房力量训练"
+- "用户计算卡路里" → 不创建（应在 classify 中 support 已有的饮食/减脂 fact）
 
 ═══ 格式规则 ═══
 - category 用最宽泛的人物画像一级分类（如：健康、职业、饮食、居住），细分领域写在 subject 里。不要把二级分类写进 category。
@@ -545,6 +574,14 @@ Do NOT create:
 - Temporary instructions ("translate this" "format this JSON")
 - Others' information, plans/wishes, unconfirmed opinions
 - value starting with "asking about" "learning about" "what is" → describes behavior, not an attribute
+- Daily metric fluctuations (today's weight XX, today's body fat XX) → don't create new facts each time, should be support in classify stage
+
+═══ Behavior → Attribute inference (important!) ═══
+When an observation describes a behavior, extract the lasting attribute implied, not the behavior itself:
+- "user cleaned their glasses" → category="physical" subject="vision" value="wears glasses"
+- "user spoke Japanese at convenience store" → category="language" subject="Japanese" value="daily conversation level"
+- "user discussed gym equipment" → category="fitness" subject="exercise" value="gym strength training"
+- "user calculated calories" → don't create (should support existing diet/weight-loss fact in classify)
 
 ═══ Format rules ═══
 - category must be a broad top-level classification (e.g. health, career, diet, residence). Put specific aspects in subject, not category.
@@ -591,6 +628,14 @@ Return [] if nothing to create""",
 - 会話中の一時的な指示（「これを翻訳して」「このJSONを整形して」）
 - 他人の情報、計画/願望、未確認の意見
 - valueが「質問」「調べ」「とは何か」で始まる → 行動の記述であり、属性ではない
+- 毎日の数値変動（今日の体重XX、今日の体脂率XX）→ 毎回新しい fact を作成しない、classify 段階で既存記録を support
+
+═══ 行動→属性の推論（重要！）═══
+観察が行動を記述している場合、行動そのものではなく、その行動が暗示する持続的な属性を抽出する：
+- 「ユーザーがメガネを洗った」→ category="身体特徴" subject="視力" value="メガネ着用"
+- 「ユーザーがコンビニで日本語で話した」→ category="言語" subject="日本語レベル" value="日常会話可能"
+- 「ユーザーがジムの器具について話した」→ category="フィットネス" subject="運動方法" value="ジムで筋トレ"
+- 「ユーザーがカロリーを計算した」→ 作成しない（classify で既存のダイエット fact を support）
 
 ═══ フォーマットルール ═══
 - category は最も広い一次分類を使う（例：健康、職業、食事、居住）。細分はsubjectに書く。二次分類をcategoryに入れない。

@@ -54,6 +54,7 @@ from agent.storage import (
     load_active_events,
     save_or_update_relationship, load_relationships,
     save_memory_snapshot,
+    delete_fact_edges_for,
 )
 from agent.utils.profile_filter import prepare_profile, format_profile_text
 
@@ -184,6 +185,7 @@ def _consolidate_profile(language="zh"):
             if old_evidence and isinstance(old_evidence, list):
                 add_evidence(keeper["id"], {"merged_from": old["id"]})
             close_time_period(old["id"])
+            delete_fact_edges_for(old["id"])
 
 
 # ══════════════════════════════════════════════════════════════
@@ -1327,10 +1329,13 @@ def run(fallback_time=None):
     print("  [sleep] start")
 
     # Step 1: 读取未处理的对话
+    MAX_SESSIONS_PER_RUN = 20
     session_convs = get_unprocessed_conversations()
     if not session_convs:
         print("  [sleep] no new conversations, skip")
         return
+    if len(session_convs) > MAX_SESSIONS_PER_RUN:
+        session_convs = dict(list(session_convs.items())[:MAX_SESSIONS_PER_RUN])
 
     total_msgs = sum(len(msgs) for msgs in session_convs.values())
     print(f"  [sleep] {total_msgs} conversations, {len(session_convs)} sessions")
@@ -1765,13 +1770,9 @@ def run(fallback_time=None):
     else:
         print("  [sleep] no new observations, skip")
 
-    # Step 5: 交叉验证（v14: suspected → confirmed）— 增量：只验证本轮受影响的 facts
-    all_suspected = load_suspected_profile()
-    if affected_fact_ids:
-        suspected_facts = [f for f in all_suspected if f["id"] in affected_fact_ids]
-    else:
-        suspected_facts = all_suspected  # 无 classify 结果时保持全量（兜底）
-    print(f"  [sleep] cross-verifying {len(suspected_facts)}/{len(all_suspected)} suspected facts (incremental)...")
+    # Step 5: 交叉验证（v14: suspected → confirmed）
+    suspected_facts = load_suspected_profile()
+    print(f"  [sleep] cross-verifying {len(suspected_facts)} suspected facts...")
     confirmed_count = 0
 
     if suspected_facts:
@@ -1794,15 +1795,9 @@ def run(fallback_time=None):
 
     print(f"  [sleep] {confirmed_count} confirmed, {len(suspected_facts) - confirmed_count} still suspected")
 
-    # Step 5.1: 矛盾争议解决 — 增量：只处理本轮受影响的 facts
-    all_disputed = load_disputed_facts()
-    if affected_fact_ids:
-        disputed_pairs = [p for p in all_disputed
-                          if p["old"]["id"] in affected_fact_ids
-                          or p["new"]["id"] in affected_fact_ids]
-    else:
-        disputed_pairs = all_disputed
-    print(f"  [sleep] resolving {len(disputed_pairs)}/{len(all_disputed)} disputes (incremental)...")
+    # Step 5.1: 矛盾争议解决
+    disputed_pairs = load_disputed_facts()
+    print(f"  [sleep] resolving {len(disputed_pairs)} disputes...")
     dispute_resolved = 0
     if disputed_pairs:
         judgments = resolve_disputes_with_llm(disputed_pairs, config, trajectory=trajectory, language=language)
@@ -1814,9 +1809,11 @@ def run(fallback_time=None):
 
             if action == "accept_new":
                 resolve_dispute(old_fid, new_fid, accept_new=True, resolution_time=latest_conv_time)
+                delete_fact_edges_for(old_fid)
                 dispute_resolved += 1
             elif action == "reject_new":
                 resolve_dispute(old_fid, new_fid, accept_new=False, resolution_time=latest_conv_time)
+                delete_fact_edges_for(new_fid)
                 dispute_resolved += 1
             else:
                 pass
@@ -1836,6 +1833,7 @@ def run(fallback_time=None):
             subj = f["subject"]
 
             close_time_period(fact_id, end_time=latest_conv_time)
+            delete_fact_edges_for(fact_id)
             try:
                 save_strategy(
                     hypothesis_category=cat,
@@ -1893,7 +1891,8 @@ def run(fallback_time=None):
     print("  [sleep] analyzing user model...")
     if all_convs:
         current_profile_for_model = load_full_current_profile(exclude_superseded=True)
-        model_results = analyze_user_model(all_convs, config,
+        model_convs = all_convs[-50:] if len(all_convs) > 50 else all_convs
+        model_results = analyze_user_model(model_convs, config,
                                            current_profile=current_profile_for_model,
                                            language=language)
         print(f"  [sleep] {len(model_results)} dimensions analyzed")

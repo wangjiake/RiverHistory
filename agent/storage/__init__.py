@@ -1279,8 +1279,11 @@ def add_evidence(fact_id: int, evidence_entry: dict, reference_time=None):
             row = cur.fetchone()
             if not row:
                 return
+            MAX_EVIDENCE = 10
             cur_evidence = row[0] if row[0] else []
             cur_evidence.append(evidence_entry)
+            if len(cur_evidence) > MAX_EVIDENCE:
+                cur_evidence = cur_evidence[-MAX_EVIDENCE:]
             cur.execute(
                 "UPDATE user_profile SET evidence = %s, updated_at = %s "
                 "WHERE id = %s",
@@ -1400,12 +1403,15 @@ def load_full_current_profile(exclude_superseded: bool = False) -> list[dict]:
 
 
 def load_timeline(category: str | None = None,
-                  subject: str | None = None) -> list[dict]:
+                  subject: str | None = None,
+                  include_rejected: bool = False) -> list[dict]:
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             conditions = []
             params: list = []
+            if not include_rejected:
+                conditions.append("rejected = FALSE")
             if category:
                 conditions.append("category = %s")
                 params.append(category)
@@ -1775,5 +1781,22 @@ def load_memory_snapshot() -> dict | None:
             return _as_dict(row)
     except Exception:
         return None
+    finally:
+        conn.close()
+
+
+def delete_fact_edges_for(fact_id: int):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    "DELETE FROM fact_edges WHERE source_fact_id = %s OR target_fact_id = %s",
+                    (fact_id, fact_id),
+                )
+            except Exception:
+                conn.rollback()
+                return
+        conn.commit()
     finally:
         conn.close()
