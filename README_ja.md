@@ -8,7 +8,7 @@
 
 ![License: AGPL-3.0 + Commercial](https://img.shields.io/badge/License-AGPL--3.0%20%2B%20Commercial-green)
 [![X (Twitter)](https://img.shields.io/badge/X-@JKRiverse-000000?logo=x&logoColor=white)](https://x.com/JKRiverse)
-[![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/PnAt4Xkt)
+[![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/ZnmFrPvXym)
 [![Docs](https://img.shields.io/badge/ドキュメント-wangjiake.github.io-06b6d4?logo=readthedocs&logoColor=white)](https://wangjiake.github.io/riverse-docs/ja/)
 
 ---
@@ -179,5 +179,5 @@ python reset_db.py --db mydb        # データベース名を指定
 ## お問い合わせ
 
 - **X (Twitter):** [@JKRiverse](https://x.com/JKRiverse)
-- **Discord:** [参加](https://discord.gg/PnAt4Xkt)
+- **Discord:** [参加](https://discord.gg/ZnmFrPvXym)
 - **Email:** mailwangjk@gmail.com
