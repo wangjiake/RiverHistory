@@ -16,6 +16,10 @@ DB_CONFIG = {
     "host": _db_cfg.get("host", "localhost"),
     "options": "-c client_encoding=UTF8",
 }
+if _db_cfg.get("password"):
+    DB_CONFIG["password"] = _db_cfg["password"]
+if _db_cfg.get("port"):
+    DB_CONFIG["port"] = _db_cfg["port"]
 
 
 def configure_db(name: str, user: str = "postgres", host: str = "localhost"):
