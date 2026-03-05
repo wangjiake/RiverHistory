@@ -179,6 +179,21 @@ def main():
     config = load_config()
     configure_db(config["db_name"], config["db_user"], config["db_host"])
 
+    # Check LLM reachability
+    import requests
+    llm = config.get("llm", {})
+    api_base = llm.get("api_base", "")
+    if api_base:
+        try:
+            requests.get(api_base, timeout=5)
+        except Exception:
+            provider = config.get("llm_provider", "local")
+            if provider == "local":
+                print(f"⚠ Cannot reach Ollama at {api_base}")
+                print("  Please run 'ollama start' first, then try again.")
+            else:
+                print(f"⚠ Cannot reach LLM API at {api_base}")
+
     start_time = datetime.now()
     print(f"\n=== Batch Processing ===")
     print(f"Source: {source}, Count: {'all' if count == 0 else count}")

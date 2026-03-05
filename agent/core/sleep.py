@@ -29,6 +29,7 @@ v15 核心变化（相对 v14）：
 """
 
 import json
+import logging
 from datetime import datetime, timedelta
 from agent.config import load_config
 from agent.utils.llm_client import call_llm
@@ -58,6 +59,7 @@ from agent.storage import (
 )
 from agent.utils.profile_filter import prepare_profile, format_profile_text
 
+logger = logging.getLogger(__name__)
 
 # (Prompts moved to sleep_prompts.py — use get_prompt(name, language))
 
@@ -1493,7 +1495,7 @@ def run(fallback_time=None):
                             reference_time=_earliest_time,
                         )
                     except Exception:
-                        pass
+                        logger.warning("Save clarify strategy failed", exc_info=True)
             pass
         else:
             pass
@@ -1760,7 +1762,7 @@ def run(fallback_time=None):
                     )
                     strategy_count += 1
                 except Exception as e:
-                    pass
+                    logger.warning("Save strategy failed: %s", e)
 
         print(f"  [sleep] step4 done: {len(supports)} support, {new_fact_count} new, {contradict_count} contradict, {strategy_count} strategies")
 
@@ -1848,7 +1850,7 @@ def run(fallback_time=None):
                     reference_time=latest_conv_time,
                 )
             except Exception:
-                pass
+                logger.warning("Save expired-fact strategy failed", exc_info=True)
             stale_count += 1
 
         print(f"  [sleep] {stale_count} expired")

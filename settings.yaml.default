@@ -17,7 +17,7 @@ language: "zh"
 #  PostgreSQL 接続情報。先に PostgreSQL をインストールして起動してください
 database:
     name: "Riverse"                     # 数据库名 | Database name | データベース名
-    user: "postgres"                    # Windows 默认 postgres 不用改 | macOS/Linux: 终端运行 whoami 查你的用户名填这里 | Windows: そのまま / macOS・Linux: whoami で確認
+    user: "jk"                    # Windows 默认 postgres 不用改 | macOS/Linux: 终端运行 whoami 查你的用户名填这里 | Windows: そのまま / macOS・Linux: whoami で確認
     host: "localhost"                   # 本地运行填 localhost | Use localhost for local | ローカルは localhost
 
 

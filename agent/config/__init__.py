@@ -1,12 +1,16 @@
 """Configuration loader."""
 
 import os
+import shutil
 import yaml
 
 _CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "settings.yaml")
+_DEFAULT_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "settings.yaml.default")
 
 def load_config(path: str = None) -> dict:
     path = path or _CONFIG_PATH
+    if not os.path.exists(path) and os.path.exists(_DEFAULT_PATH):
+        shutil.copy2(_DEFAULT_PATH, path)
     with open(path, "r", encoding="utf-8") as f:
         raw = yaml.safe_load(f)
 

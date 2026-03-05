@@ -22,3 +22,5 @@ build/
 .DS_Store
 .claude/
 tmp/
+settings.yaml
+pg_env.bat
