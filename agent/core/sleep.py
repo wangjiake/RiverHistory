@@ -1832,6 +1832,9 @@ def run(fallback_time=None):
             cat = f["category"]
             subj = f["subject"]
 
+            if f.get("superseded_by") or f.get("supersedes"):
+                continue
+
             close_time_period(fact_id, end_time=latest_conv_time)
             delete_fact_edges_for(fact_id)
             try:

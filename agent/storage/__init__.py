@@ -1441,7 +1441,7 @@ def get_expired_facts(reference_time=None) -> list[dict]:
             cur.execute(
                 "SELECT id, category, subject, value, layer, source_type, "
                 "start_time, decay_days, expires_at, evidence, mention_count, "
-                "created_at, updated_at "
+                "created_at, updated_at, superseded_by, supersedes "
                 "FROM user_profile "
                 "WHERE expires_at IS NOT NULL AND expires_at < %s "
                 "AND end_time IS NULL "
@@ -1497,6 +1497,11 @@ def resolve_dispute(old_fact_id: int, new_fact_id: int, accept_new: bool,
                     "UPDATE user_profile SET end_time = %s, updated_at = %s "
                     "WHERE id = %s",
                     (end_time, now, old_fact_id),
+                )
+                cur.execute(
+                    "UPDATE user_profile SET supersedes = NULL, updated_at = %s "
+                    "WHERE id = %s",
+                    (now, new_fact_id),
                 )
             else:
                 cur.execute(
