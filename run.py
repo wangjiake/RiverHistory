@@ -212,7 +212,7 @@ def main():
 
     # Import core processing module
     try:
-        from agent.core.sleep import run as run_sleep
+        from agent.sleep import run as run_sleep
     except ImportError:
         print("Error: agent/core/sleep module not found.")
         print("Please download the correct .so file for your platform from Releases")

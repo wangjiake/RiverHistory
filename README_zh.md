@@ -104,7 +104,7 @@ python web.py --db Riverse
 | 数据集 | 人物 | 语言 | 对话数 | 命令 |
 |--------|------|------|--------|------|
 | `--demo` | 林雨桐 | 中文 | 50 组 | `python import_data.py --demo` |
-| `--demo2` | 林雨桐（扩展） | 中文 | 50 组 | `python import_data.py --demo2` |
+| `--demo2` | 沈一帆 | 中文 | 15 组 | `python import_data.py --demo2` |
 | `--demo3` | Jake Morrison | English | 20 组 | `python import_data.py --demo3` |
 
 > `--demo2` 和 `--demo3` 会先清空 demo 表再导入。
@@ -153,16 +153,26 @@ python reset_db.py --db mydb        # 指定数据库
 ├── requirements.txt     # Python 依赖
 ├── data/                # 对话导出文件（已 git-ignore）
 │   ├── demo.json        # 测试数据：林雨桐（中文，50 组）
-│   ├── demo2.json       # 测试数据：林雨桐扩展（中文，50 组）
+│   ├── demo2.json       # 测试数据：沈一帆（中文，15 组）
 │   └── demo3.json       # 测试数据：Jake Morrison（英文，20 组）
 ├── agent/
 │   ├── perceive.py      # 感知模块 — 分类用户输入
 │   ├── config/          # 配置加载
-│   ├── storage/         # 数据库操作
+│   ├── storage/         # 数据库操作（模块化子包）
+│   │   ├── _db.py       # 连接与工具函数
+│   │   ├── profile.py   # 画像事实 CRUD
+│   │   ├── hypotheses.py # 假说生命周期
+│   │   ├── observations.py, events.py, conversation.py, ...
+│   │   └── parsing.py   # 历史格式解析（Claude/ChatGPT/Gemini）
 │   ├── utils/           # LLM 客户端
-│   └── core/            # 核心画像提取
-│       ├── sleep.py     # 主提取流程
-│       └── sleep_prompts.py  # 多语言提示词（zh/en/ja）
+│   ├── core/
+│   │   └── sleep_prompts.py  # 多语言提示词（zh/en/ja）
+│   └── sleep/           # 离线提取流程（模块化子包）
+│       ├── orchestration.py  # 主 run() 入口
+│       ├── extractors.py     # 观测与事实提取
+│       ├── analysis.py       # 行为分析与交叉验证
+│       ├── disputes.py       # 矛盾解决
+│       └── trajectory.py     # 人生轨迹摘要
 └── templates/
     └── profile.html     # 网页模板
 ```

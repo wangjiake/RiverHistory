@@ -104,7 +104,7 @@ python web.py --db Riverse
 | データセット | キャラクター | 言語 | セッション数 | コマンド |
 |-------------|-------------|------|-------------|---------|
 | `--demo` | 林雨桐 | 中国語 | 50 組 | `python import_data.py --demo` |
-| `--demo2` | 林雨桐（拡張） | 中国語 | 50 組 | `python import_data.py --demo2` |
+| `--demo2` | 沈一帆 | 中国語 | 15 組 | `python import_data.py --demo2` |
 | `--demo3` | Jake Morrison | English | 20 組 | `python import_data.py --demo3` |
 
 > `--demo2` と `--demo3` はインポート前にdemoテーブルをクリアします。
@@ -153,16 +153,26 @@ python reset_db.py --db mydb        # データベース名を指定
 ├── requirements.txt     # Python依存関係
 ├── data/                # 会話エクスポートファイル（git-ignore済み）
 │   ├── demo.json        # デモ：林雨桐（中国語、50組）
-│   ├── demo2.json       # デモ：林雨桐拡張（中国語、50組）
+│   ├── demo2.json       # デモ：沈一帆（中国語、15組）
 │   └── demo3.json       # デモ：Jake Morrison（英語、20組）
 ├── agent/
 │   ├── perceive.py      # 知覚モジュール — ユーザー入力を分類
 │   ├── config/          # 設定ローダー
-│   ├── storage/         # データベース操作
+│   ├── storage/         # データベース操作（モジュラーサブパッケージ）
+│   │   ├── _db.py       # 接続とヘルパー
+│   │   ├── profile.py   # プロフィール事実 CRUD
+│   │   ├── hypotheses.py # 仮説ライフサイクル
+│   │   ├── observations.py, events.py, conversation.py, ...
+│   │   └── parsing.py   # 履歴フォーマットパーサー（Claude/ChatGPT/Gemini）
 │   ├── utils/           # LLMクライアント
-│   └── core/            # コアプロフィール抽出
-│       ├── sleep.py     # メイン抽出パイプライン
-│       └── sleep_prompts.py  # 多言語プロンプト（zh/en/ja）
+│   ├── core/
+│   │   └── sleep_prompts.py  # 多言語プロンプト（zh/en/ja）
+│   └── sleep/           # オフライン抽出パイプライン（モジュラーサブパッケージ）
+│       ├── orchestration.py  # メイン run() エントリポイント
+│       ├── extractors.py     # 観測と事実抽出
+│       ├── analysis.py       # 行動分析とクロス検証
+│       ├── disputes.py       # 矛盾解決
+│       └── trajectory.py     # 人生軌跡サマリー
 └── templates/
     └── profile.html     # Webビューアテンプレート
 ```

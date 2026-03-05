@@ -105,7 +105,7 @@ The project includes built-in test data, so you can experience the full workflow
 | Dataset | Character | Language | Sessions | Command |
 |---------|-----------|----------|----------|---------|
 | `--demo` | Lin Yutong | Chinese | 50 | `python import_data.py --demo` |
-| `--demo2` | Lin Yutong (extended) | Chinese | 50 | `python import_data.py --demo2` |
+| `--demo2` | Shen Yifan | Chinese | 15 | `python import_data.py --demo2` |
 | `--demo3` | Jake Morrison | English | 20 | `python import_data.py --demo3` |
 
 > `--demo2` and `--demo3` clear the demo table before importing.
@@ -154,16 +154,26 @@ python reset_db.py --db mydb        # Specify database name
 ├── requirements.txt     # Python dependencies
 ├── data/                # Conversation export files (git-ignored)
 │   ├── demo.json        # Demo: Lin Yutong (Chinese, 50 sessions)
-│   ├── demo2.json       # Demo: Lin Yutong extended (Chinese, 50 sessions)
+│   ├── demo2.json       # Demo: Shen Yifan (Chinese, 15 sessions)
 │   └── demo3.json       # Demo: Jake Morrison (English, 20 sessions)
 ├── agent/
 │   ├── perceive.py      # Perception module — classify user input
 │   ├── config/          # Configuration loader
-│   ├── storage/         # Database operations
+│   ├── storage/         # Database operations (modular subpackage)
+│   │   ├── _db.py       # Connection & helpers
+│   │   ├── profile.py   # Profile facts CRUD
+│   │   ├── hypotheses.py # Hypothesis lifecycle
+│   │   ├── observations.py, events.py, conversation.py, ...
+│   │   └── parsing.py   # History format parsers (Claude/ChatGPT/Gemini)
 │   ├── utils/           # LLM client
-│   └── core/            # Core profile extraction
-│       ├── sleep.py     # Main extraction pipeline
-│       └── sleep_prompts.py  # Multilingual prompts (zh/en/ja)
+│   ├── core/
+│   │   └── sleep_prompts.py  # Multilingual prompts (zh/en/ja)
+│   └── sleep/           # Offline extraction pipeline (modular subpackage)
+│       ├── orchestration.py  # Main run() entry point
+│       ├── extractors.py     # Observation & fact extraction
+│       ├── analysis.py       # Behavioral analysis & cross-verification
+│       ├── disputes.py       # Contradiction resolution
+│       └── trajectory.py     # Life trajectory summary
 └── templates/
     └── profile.html     # Web viewer template
 ```
