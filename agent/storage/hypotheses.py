@@ -147,7 +147,7 @@ def save_hypothesis(category: str, subject: str, claim: str,
                     conn.commit()
                     return hyp_id
                 except Exception:
-                    logger.error("save_hypothesis insert failed (cat=%s, subj=%s)", category, subject, exc_info=True)
+                    logger.debug("Hypothesis INSERT conflict, falling back to SELECT", exc_info=True)
                     conn.rollback()
                     cur.execute(
                         "SELECT id FROM hypotheses WHERE category = %s AND subject = %s "

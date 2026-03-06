@@ -73,13 +73,10 @@ def run(fallback_time=None):
     print("  [sleep] start")
 
     # Step 1: 读取未处理的对话
-    MAX_SESSIONS_PER_RUN = 20
     session_convs = get_unprocessed_conversations()
     if not session_convs:
         print("  [sleep] no new conversations, skip")
         return
-    if len(session_convs) > MAX_SESSIONS_PER_RUN:
-        session_convs = dict(list(session_convs.items())[:MAX_SESSIONS_PER_RUN])
 
     total_msgs = sum(len(msgs) for msgs in session_convs.values())
     print(f"  [sleep] {total_msgs} conversations, {len(session_convs)} sessions")
@@ -579,7 +576,10 @@ def run(fallback_time=None):
                 continue
 
             close_time_period(fact_id, end_time=latest_conv_time)
-            delete_fact_edges_for(fact_id)
+            try:
+                delete_fact_edges_for(fact_id)
+            except Exception:
+                logger.error("Delete edges for expired fact %s failed", fact_id, exc_info=True)
             try:
                 save_strategy(
                     hypothesis_category=cat,

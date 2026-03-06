@@ -33,6 +33,10 @@ def call_llm(messages: list[dict], config: dict) -> str:
             timeout=120,
         )
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
+        data = resp.json()
+        choices = data.get("choices")
+        if not choices:
+            return ""
+        return choices[0].get("message", {}).get("content", "")
     except Exception as e:
         return f"[LLM error: {e}]"

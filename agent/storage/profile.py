@@ -645,8 +645,7 @@ def delete_fact_edges_for(fact_id: int):
                 )
             except Exception:
                 logger.error("delete_fact_edges_for failed (fact_id=%s)", fact_id, exc_info=True)
-                conn.rollback()
-                return
+                raise
         conn.commit()
     finally:
         conn.close()

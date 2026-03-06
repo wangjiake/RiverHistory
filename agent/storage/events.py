@@ -61,7 +61,7 @@ def _is_similar_event(existing: str, new: str) -> bool:
         return s
     a, b = clean(existing), clean(new)
     if not a or not b:
-        return True
+        return False
     return a == b or a in b or b in a
 
 
