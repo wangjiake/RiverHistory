@@ -10,7 +10,7 @@ from ._parsing import _parse_json_object
 def generate_trajectory_summary(current_profile: list[dict],
                                 config: dict,
                                 new_observations: list[dict] | None = None,
-                                language: str = "zh") -> dict:
+                                language: str = "en") -> dict:
     """Step 7: 生成/更新人物轨迹总结（v14: 使用双层画像）。"""
     llm_config = config.get("llm", {})
 

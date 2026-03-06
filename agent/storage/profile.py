@@ -1,8 +1,11 @@
 """Profile storage: user_profile, user_model, trajectory, relationships, fact_edges."""
 
 import json
+import logging
 from datetime import datetime, timedelta
 from ._db import get_db_connection, _as_dict, _as_dicts
+
+logger = logging.getLogger(__name__)
 from ._synonyms import _get_category_synonyms, _get_subject_synonyms
 from psycopg2.extras import RealDictCursor
 
@@ -641,6 +644,7 @@ def delete_fact_edges_for(fact_id: int):
                     (fact_id, fact_id),
                 )
             except Exception:
+                logger.error("delete_fact_edges_for failed (fact_id=%s)", fact_id, exc_info=True)
                 conn.rollback()
                 return
         conn.commit()

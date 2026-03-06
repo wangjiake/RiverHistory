@@ -1,11 +1,20 @@
 """Memory: conversation summaries, observation-subject lookups, snapshots."""
 
+import logging
+
 from ._db import get_db_connection, _as_dict, _as_dicts
 from ._synonyms import _get_subject_synonyms
 from psycopg2.extras import RealDictCursor
 
+logger = logging.getLogger(__name__)
 
-def load_conversation_summaries_around(pivot_time, limit_before=30, limit_after=50) -> dict:
+DEFAULT_SUMMARY_LIMIT_BEFORE = 30
+DEFAULT_SUMMARY_LIMIT_AFTER = 50
+
+
+def load_conversation_summaries_around(pivot_time,
+                                       limit_before=DEFAULT_SUMMARY_LIMIT_BEFORE,
+                                       limit_after=DEFAULT_SUMMARY_LIMIT_AFTER) -> dict:
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -114,6 +123,7 @@ def load_memory_snapshot() -> dict | None:
             row = cur.fetchone()
             return _as_dict(row)
     except Exception:
+        logger.error("load_memory_snapshot query failed", exc_info=True)
         return None
     finally:
         conn.close()

@@ -13,7 +13,7 @@ from ._parsing import _parse_json_array
 
 def resolve_disputes_with_llm(disputed_pairs: list[dict], config: dict,
                               trajectory: dict | None = None,
-                              language: str = "zh") -> list[dict]:
+                              language: str = "en") -> list[dict]:
     """Step 5.1: 矛盾争议解决 — 用 LLM 判断每对矛盾中哪个值是正确的当前状态。
     v15: 精确时间线 — 按矛盾创建时间分成"之前/之后"两组观察。"""
     llm_config = config.get("llm", {})

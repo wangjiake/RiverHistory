@@ -12,7 +12,7 @@ from ._formatting import _format_profile_for_llm
 
 def extract_observations_and_tags(conversations: list[dict], config: dict,
                                    existing_profile: list[dict] | None = None,
-                                   language: str = "zh") -> dict:
+                                   language: str = "en") -> dict:
     """Step 2: 从对话中提取观察 + 标签（v14: 使用 user_profile 画像）"""
     llm_config = config.get("llm", {})
 
@@ -95,7 +95,7 @@ def extract_observations_and_tags(conversations: list[dict], config: dict,
 
 
 def extract_events(conversations: list[dict], config: dict,
-                    language: str = "zh") -> list[dict]:
+                    language: str = "en") -> list[dict]:
     """Step 3: 从对话中提取事件"""
     llm_config = config.get("llm", {})
 
@@ -121,7 +121,7 @@ def classify_observations(observations: list[dict],
                            config: dict,
                            timeline: list[dict] | None = None,
                            trajectory: dict | None = None,
-                           language: str = "zh") -> list[dict]:
+                           language: str = "en") -> list[dict]:
     """Step 4a: 对每条观察分类 — support/contradict/new/etc.
     v14: 使用双层画像 + 时间线 + 轨迹。"""
     llm_config = config.get("llm", {})
@@ -200,7 +200,7 @@ def create_new_facts(new_observations: list[dict],
                      config: dict,
                      behavioral_signals: list | None = None,
                      trajectory: dict | None = None,
-                     language: str = "zh") -> list[dict]:
+                     language: str = "en") -> list[dict]:
     """Step 4b: 为未匹配的观察创建新画像事实。只看 'new' 类观察。"""
     llm_config = config.get("llm", {})
     if not new_observations:

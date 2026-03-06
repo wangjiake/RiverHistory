@@ -1,8 +1,11 @@
 """Hypothesis storage (legacy hypotheses table)."""
 
 import json
+import logging
 from datetime import datetime, timedelta
 from ._db import get_db_connection, _as_dicts
+
+logger = logging.getLogger(__name__)
 from ._synonyms import _get_category_synonyms, _get_subject_synonyms
 from psycopg2.extras import RealDictCursor
 
@@ -144,6 +147,7 @@ def save_hypothesis(category: str, subject: str, claim: str,
                     conn.commit()
                     return hyp_id
                 except Exception:
+                    logger.error("save_hypothesis insert failed (cat=%s, subj=%s)", category, subject, exc_info=True)
                     conn.rollback()
                     cur.execute(
                         "SELECT id FROM hypotheses WHERE category = %s AND subject = %s "

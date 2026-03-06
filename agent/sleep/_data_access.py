@@ -54,7 +54,7 @@ def mark_processed(message_ids: list[int]):
         conn.close()
 
 
-def _consolidate_profile(language="zh"):
+def _consolidate_profile(language="en"):
     """合并同 category+subject 的冗余条目，只保留最新的。"""
     all_profile = load_full_current_profile()
     groups = defaultdict(list)

@@ -82,9 +82,9 @@ _LABELS = {
 }
 
 
-def perceive(user_input: str, llm_config: dict, language: str = "zh") -> dict:
-    prompt = _PROMPTS.get(language, _PROMPTS["zh"])
-    labels = _LABELS.get(language, _LABELS["zh"])
+def perceive(user_input: str, llm_config: dict, language: str = "en") -> dict:
+    prompt = _PROMPTS.get(language, _PROMPTS["en"])
+    labels = _LABELS.get(language, _LABELS["en"])
 
     messages = [
         {"role": "system", "content": prompt},
@@ -98,8 +98,8 @@ def perceive(user_input: str, llm_config: dict, language: str = "zh") -> dict:
     return result
 
 
-def _parse_output(raw: str, user_input: str, language: str = "zh") -> dict:
-    labels = _LABELS.get(language, _LABELS["zh"])
+def _parse_output(raw: str, user_input: str, language: str = "en") -> dict:
+    labels = _LABELS.get(language, _LABELS["en"])
     result = {
         "intent": user_input,
         "category": "chat",

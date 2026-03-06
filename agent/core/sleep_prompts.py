@@ -4,20 +4,20 @@ Each prompt is a dict keyed by language code.
 """
 
 
-def get_prompt(name: str, language: str = "zh") -> str:
+def get_prompt(name: str, language: str = "en") -> str:
     """Get prompt by name and language, fallback to zh."""
     prompts = ALL_PROMPTS.get(name)
     if not prompts:
         raise KeyError(f"Unknown prompt: {name}")
-    return prompts.get(language, prompts["zh"])
+    return prompts.get(language, prompts["en"])
 
 
-def get_label(name: str, language: str = "zh") -> str:
+def get_label(name: str, language: str = "en") -> str:
     """Get UI/format label by name and language."""
     labels = FORMAT_LABELS.get(name)
     if not labels:
         return name
-    return labels.get(language, labels["zh"])
+    return labels.get(language, labels["en"])
 
 
 # ══════════════════════════════════════════════════════════════

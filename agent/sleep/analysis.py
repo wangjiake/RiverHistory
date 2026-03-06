@@ -16,7 +16,7 @@ from ._formatting import _format_trajectory_block
 def generate_strategies(changed_items: list[dict], config: dict,
                         current_profile: list[dict] | None = None,
                         trajectory: dict | None = None,
-                        language: str = "zh") -> list[dict]:
+                        language: str = "en") -> list[dict]:
     """Step 4d: 为新建/矛盾的假设生成验证策略。"""
     llm_config = config.get("llm", {})
     if not changed_items:
@@ -76,7 +76,7 @@ def generate_strategies(changed_items: list[dict], config: dict,
 
 def analyze_user_model(conversations: list[dict], config: dict,
                        current_profile: list[dict] | None = None,
-                       language: str = "zh") -> list[dict]:
+                       language: str = "en") -> list[dict]:
     """Step 6: 分析用户沟通特征"""
     llm_config = config.get("llm", {})
 
@@ -123,7 +123,7 @@ def analyze_behavioral_patterns(observations: list[dict],
                                  current_profile: list[dict],
                                  trajectory: dict | None,
                                  config: dict,
-                                 language: str = "zh") -> list[dict]:
+                                 language: str = "en") -> list[dict]:
     """Step 3.5: 行为模式分析（v14: 用双层画像）"""
     llm_config = config.get("llm", {})
     if not observations or len(observations) < 1:
@@ -168,7 +168,7 @@ def analyze_behavioral_patterns(observations: list[dict],
 
 def cross_verify_suspected_facts(suspected_facts: list[dict], config: dict,
                                   trajectory: dict | None = None,
-                                  language: str = "zh") -> list[dict]:
+                                  language: str = "en") -> list[dict]:
     """Step 5: 交叉验证怀疑画像（v14: suspected → confirmed）。"""
     llm_config = config.get("llm", {})
     if not suspected_facts:

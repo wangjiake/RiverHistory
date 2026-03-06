@@ -4,7 +4,7 @@ import json
 from agent.core.sleep_prompts import get_label
 
 
-def _format_trajectory_block(trajectory: dict | None, language: str = "zh") -> str:
+def _format_trajectory_block(trajectory: dict | None, language: str = "en") -> str:
     """把轨迹总结格式化为可嵌入 prompt 的文本块。"""
     if not trajectory or not trajectory.get("life_phase"):
         return get_label("no_trajectory", language)
@@ -22,7 +22,7 @@ def _format_trajectory_block(trajectory: dict | None, language: str = "zh") -> s
 
 
 def _format_profile_for_llm(profile: list[dict], timeline: list[dict] | None = None,
-                            language: str = "zh", max_items: int = 80) -> str:
+                            language: str = "en", max_items: int = 80) -> str:
     """把画像列表格式化为 LLM 可读文本（v14: 双层画像 + 时间线）。"""
     if not profile:
         return get_label("no_profile", language)

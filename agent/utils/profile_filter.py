@@ -4,7 +4,7 @@ from agent.core.sleep_prompts import get_label
 
 
 def prepare_profile(profile, query_text=None, config=None,
-                    max_entries=30, language="zh"):
+                    max_entries=30, language="en"):
     """
     过滤 → 排序 → 截断
 
@@ -49,7 +49,7 @@ def prepare_profile(profile, query_text=None, config=None,
 
 
 def format_profile_text(profile, keywords=None, config=None,
-                        max_entries=30, detail="full", language="zh"):
+                        max_entries=30, detail="full", language="en"):
     """
     prepare_profile + 格式化为文本
 

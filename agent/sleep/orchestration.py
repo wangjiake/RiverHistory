@@ -68,7 +68,7 @@ logger = logging.getLogger(__name__)
 
 def run(fallback_time=None):
     config = load_config()
-    language = config.get("language", "zh")
+    language = config.get("language", "en")
 
     print("  [sleep] start")
 
@@ -84,6 +84,7 @@ def run(fallback_time=None):
     total_msgs = sum(len(msgs) for msgs in session_convs.values())
     print(f"  [sleep] {total_msgs} conversations, {len(session_convs)} sessions")
 
+    _pipeline_errors = 0
     all_msg_ids = []
     all_convs = []
     all_observations = []
@@ -237,7 +238,8 @@ def run(fallback_time=None):
                             reference_time=_earliest_time,
                         )
                     except Exception:
-                        logger.warning("Save clarify strategy failed", exc_info=True)
+                        _pipeline_errors += 1
+                        logger.error("Save clarify strategy failed", exc_info=True)
 
     # ═══ Step 4: 分步画像更新（v14 拆分版）═══
     print("  [sleep] classifying observations...")
@@ -501,7 +503,8 @@ def run(fallback_time=None):
                     )
                     strategy_count += 1
                 except Exception as e:
-                    logger.warning("Save strategy failed: %s", e)
+                    _pipeline_errors += 1
+                    logger.error("Save strategy failed: %s", e)
 
         print(f"  [sleep] step4 done: {len(supports)} support, {new_fact_count} new, {contradict_count} contradict, {strategy_count} strategies")
 
@@ -588,7 +591,8 @@ def run(fallback_time=None):
                     reference_time=latest_conv_time,
                 )
             except Exception:
-                logger.warning("Save expired-fact strategy failed", exc_info=True)
+                _pipeline_errors += 1
+                logger.error("Save expired-fact strategy failed", exc_info=True)
             stale_count += 1
 
         print(f"  [sleep] {stale_count} expired")
@@ -697,7 +701,8 @@ def run(fallback_time=None):
                                             reference_time=latest_conv_time)
                     print(f"  [sleep] trajectory updated: {trajectory_result.get('life_phase', '?')}")
                 except Exception as e:
-                    print(f"  [sleep] trajectory save failed: {e}")
+                    _pipeline_errors += 1
+                    logger.error("trajectory save failed: %s", e)
             else:
                 print("  [sleep] trajectory generation failed")
         else:
@@ -736,10 +741,14 @@ def run(fallback_time=None):
         save_memory_snapshot(snapshot_text, profile_count=len(final_profile))
         print("  [sleep] snapshot saved")
     except Exception as e:
-        print(f"  [sleep] snapshot failed: {e}")
+        _pipeline_errors += 1
+        logger.error("snapshot failed: %s", e)
 
     # Step 8: 标记已处理
     mark_processed(all_msg_ids)
     print(f"  [sleep] processed {len(all_msg_ids)} conversations")
+
+    if _pipeline_errors:
+        logger.warning("Sleep pipeline completed with %d error(s)", _pipeline_errors)
 
     print("  [sleep] done")
