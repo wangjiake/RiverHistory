@@ -3,6 +3,11 @@
 import requests
 
 
+def is_llm_error(text: str) -> bool:
+    """Check if text is an LLM error message."""
+    return bool(text) and text.startswith("[LLM ")
+
+
 def call_llm(messages: list[dict], config: dict) -> str:
     api_base = config.get("api_base", "https://api.openai.com")
     model = config.get("model", "gpt-4o-mini")
