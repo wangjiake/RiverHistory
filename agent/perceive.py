@@ -108,22 +108,27 @@ def _parse_output(raw: str, user_input: str, language: str = "en") -> dict:
         "ai_summary": user_input,
         "topic_keywords": [],
     }
+    def _extract_value(line: str) -> str:
+        if "：" in line:
+            return line.split("：", 1)[1].strip()
+        return line.split(":", 1)[1].strip() if ":" in line else line.strip()
+
     for line in raw.split("\n"):
         line = line.strip()
         if any(line.startswith(p) for p in labels["correction"]):
-            val = line.split("：", 1)[-1].split(":", 1)[-1].strip()
+            val = _extract_value(line)
             if val:
                 result["corrected_input"] = val
         elif any(line.startswith(p) for p in labels["category"]):
-            val = line.split("：", 1)[-1].split(":", 1)[-1].strip().lower()
+            val = _extract_value(line).lower()
             if val in ("knowledge", "chat", "personal"):
                 result["category"] = val
         elif any(line.startswith(p) for p in labels["intent"]):
-            result["intent"] = line.split("：", 1)[-1].split(":", 1)[-1].strip()
+            result["intent"] = _extract_value(line)
         elif any(line.startswith(p) for p in labels["summary"]):
-            result["ai_summary"] = line.split("：", 1)[-1].split(":", 1)[-1].strip()
+            result["ai_summary"] = _extract_value(line)
         elif any(line.startswith(p) for p in labels["keywords"]):
-            kw_str = line.split("：", 1)[-1].split(":", 1)[-1].strip()
+            kw_str = _extract_value(line)
             result["topic_keywords"] = [k.strip() for k in kw_str.split(",") if k.strip()]
 
     result["need_memory"] = result["category"] in ("chat", "personal")
