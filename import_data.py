@@ -163,6 +163,8 @@ def import_claude(filepath: str, conn):
         if created_at:
             try:
                 conv_time = datetime.fromisoformat(created_at)
+                if conv_time.tzinfo is None:
+                    conv_time = conv_time.replace(tzinfo=timezone.utc)
             except Exception:
                 conv_time = None
         else:

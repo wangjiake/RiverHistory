@@ -176,11 +176,11 @@ def api_snapshot():
         year, mon = month.split("-")
         year, mon = int(year), int(mon)
         if mon == 12:
-            next_month = datetime(year + 1, 1, 1)
+            next_month = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
         else:
-            next_month = datetime(year, mon + 1, 1)
+            next_month = datetime(year, mon + 1, 1, tzinfo=timezone.utc)
         month_end = next_month - timedelta(seconds=1)
-        month_start = datetime(year, mon, 1)
+        month_start = datetime(year, mon, 1, tzinfo=timezone.utc)
     except Exception:
         return jsonify([])
 
@@ -313,6 +313,8 @@ def api_review_profile():
             if human_end_time:
                 try:
                     het = datetime.fromisoformat(human_end_time)
+                    if het.tzinfo is None:
+                        het = het.replace(tzinfo=timezone.utc)
                 except (ValueError, TypeError):
                     return jsonify({"error": "Invalid time format"}), 400
             else:
