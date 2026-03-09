@@ -1,6 +1,7 @@
 """Step 7: Trajectory summary generation."""
 
 from datetime import datetime
+from agent.utils.time_context import get_now
 from agent.utils.llm_client import call_llm
 from agent.core.sleep_prompts import get_prompt, get_label
 from agent.storage import load_observations, load_active_events, load_trajectory_summary
@@ -69,7 +70,7 @@ def generate_trajectory_summary(current_profile: list[dict],
         prev_text = "上一次轨迹总结：（首次生成）\n"
 
     user_content = (
-        f"当前系统时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}（今年是{datetime.now().year}年）\n\n"
+        f"当前系统时间：{get_now().strftime('%Y-%m-%d %H:%M')}（今年是{get_now().year}年）\n\n"
         f"当前画像（活跃假设）：\n{profile_text}\n"
         f"本次新观察：\n{new_obs_text}\n"
         f"历史观察（完整时间线）：\n{hist_obs_text}\n"

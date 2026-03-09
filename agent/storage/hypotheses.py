@@ -3,6 +3,7 @@
 import json
 import logging
 from datetime import datetime, timedelta
+from agent.utils.time_context import get_now
 from ._db import get_db_connection, _as_dicts
 
 logger = logging.getLogger(__name__)
@@ -65,7 +66,7 @@ def save_hypothesis(category: str, subject: str, claim: str,
                     start_time=None) -> int:
     if evidence_for is None:
         evidence_for = []
-    now = start_time if start_time else datetime.now()
+    now = start_time if start_time else get_now()
     if not decay_days or decay_days <= 0:
         decay_days = 365
     expires_at = now + timedelta(days=decay_days)
@@ -165,7 +166,7 @@ def update_hypothesis_evidence(hypothesis_id: int,
                                new_confidence: float | None = None,
                                supports_suspected: bool = False,
                                reference_time=None) -> bool:
-    now = reference_time if reference_time else datetime.now()
+    now = reference_time if reference_time else get_now()
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
@@ -328,7 +329,7 @@ def get_hypothesis_by_subject(category: str, subject: str) -> dict | None:
 
 
 def enter_suspicion_mode(hypothesis_id: int, suspected_value: str):
-    now = datetime.now()
+    now = get_now()
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
@@ -347,7 +348,7 @@ def enter_suspicion_mode(hypothesis_id: int, suspected_value: str):
 
 
 def update_suspected_evidence(hypothesis_id: int, evidence: dict):
-    now = datetime.now()
+    now = get_now()
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
@@ -371,7 +372,7 @@ def update_suspected_evidence(hypothesis_id: int, evidence: dict):
 
 
 def resolve_suspicion(hypothesis_id: int, accept: bool):
-    now = datetime.now()
+    now = get_now()
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
@@ -449,7 +450,7 @@ def resolve_suspicion(hypothesis_id: int, accept: bool):
 
 def upgrade_hypothesis_decay(hypothesis_id: int, new_decay_days: int,
                              reference_time=None):
-    now = reference_time if reference_time else datetime.now()
+    now = reference_time if reference_time else get_now()
     new_expires = now + timedelta(days=new_decay_days)
     conn = get_db_connection()
     try:
@@ -465,7 +466,7 @@ def upgrade_hypothesis_decay(hypothesis_id: int, new_decay_days: int,
 
 
 def set_hypothesis_status(hypothesis_id: int, status: str):
-    now = datetime.now()
+    now = get_now()
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:

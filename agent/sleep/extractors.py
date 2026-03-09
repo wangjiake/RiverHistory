@@ -2,6 +2,7 @@
 
 import json
 from datetime import datetime
+from agent.utils.time_context import get_now
 from agent.utils.llm_client import call_llm
 from agent.core.sleep_prompts import get_prompt, get_label
 from agent.storage import load_existing_tags
@@ -72,8 +73,8 @@ def extract_observations_and_tags(conversations: list[dict], config: dict,
 
     # 用对话时间（而非系统时间）算年龄
     conv_times = [m["user_input_at"] for m in conversations if m.get("user_input_at")]
-    ref_time = max(conv_times) if conv_times else datetime.now()
-    ref_year = ref_time.year if hasattr(ref_time, 'year') else datetime.now().year
+    ref_time = max(conv_times) if conv_times else get_now()
+    ref_year = ref_time.year if hasattr(ref_time, 'year') else get_now().year
     date_prefix = (
         f"对话时间：{ref_time.strftime('%Y-%m-%d %H:%M') if hasattr(ref_time, 'strftime') else '?'}（当年是{ref_year}年）\n"
         f"注意：用户说\"今年XX岁\"时，出生年 = {ref_year} - 年龄。例如\"今年25岁\"→出生年={ref_year}-25={ref_year - 25}。\n\n"
@@ -269,8 +270,8 @@ def create_new_facts(new_observations: list[dict],
 
     # 用观察里的对话时间算年龄
     _obs_times = [o.get("_conv_time") for o in new_observations if o.get("_conv_time")]
-    ref_time = max(_obs_times) if _obs_times else datetime.now()
-    ref_year = ref_time.year if hasattr(ref_time, 'year') else datetime.now().year
+    ref_time = max(_obs_times) if _obs_times else get_now()
+    ref_year = ref_time.year if hasattr(ref_time, 'year') else get_now().year
     prompt = get_prompt("create_hypotheses", language).replace(
         "{existing_categories}", cat_block
     ).replace(

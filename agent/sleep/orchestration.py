@@ -29,6 +29,7 @@ v15 核心变化（相对 v14）：
 
 import logging
 from datetime import datetime, timedelta
+from agent.utils.time_context import get_now
 from agent.config import load_config
 from agent.storage import (
     get_db_connection,
@@ -275,7 +276,7 @@ def run(fallback_time=None):
             classify_profile = current_profile
         elif len(obs_subjects) <= 3:
             # 窄话题 → 相关 category + 最近 3 个月
-            three_months_ago = datetime.now() - timedelta(days=90)
+            three_months_ago = get_now() - timedelta(days=90)
             obs_categories = set()
             for o in all_observations:
                 if o.get("subject"):
@@ -284,7 +285,7 @@ def run(fallback_time=None):
                 p for p in current_profile
                 if p.get("subject") in obs_subjects
                 or p.get("category") in obs_categories
-                or (p.get("updated_at") and p["updated_at"].replace(tzinfo=None) >= three_months_ago)
+                or (p.get("updated_at") and p["updated_at"] >= three_months_ago)
             ]
             if not classify_profile:
                 classify_profile = current_profile
@@ -615,9 +616,7 @@ def run(fallback_time=None):
         if not start or not updated:
             continue
         # 统一时区
-        f_naive = start.replace(tzinfo=None) if hasattr(start, 'tzinfo') and start.tzinfo else start
-        l_naive = updated.replace(tzinfo=None) if hasattr(updated, 'tzinfo') and updated.tzinfo else updated
-        span_days = (l_naive - f_naive).days
+        span_days = (updated - start).days
         ev = f.get("evidence", [])
         evidence_count = len(ev) if isinstance(ev, list) else 0
         current_decay = f.get("decay_days") or 90

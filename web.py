@@ -4,7 +4,7 @@ import os
 import sys
 import json
 import argparse
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from decimal import Decimal
 from flask import Flask, render_template, jsonify, request, send_from_directory
 import psycopg2
@@ -316,7 +316,7 @@ def api_review_profile():
                 except (ValueError, TypeError):
                     return jsonify({"error": "Invalid time format"}), 400
             else:
-                het = datetime.now()
+                het = datetime.now(timezone.utc)
             cur.execute(
                 "UPDATE user_profile SET human_end_time = %s, note = %s WHERE id = %s",
                 (het, note or row["note"], fact_id),

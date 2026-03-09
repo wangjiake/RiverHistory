@@ -2,6 +2,7 @@
 
 import json
 from datetime import datetime, timedelta
+from agent.utils.time_context import get_now
 from agent.utils.llm_client import call_llm
 from agent.core.sleep_prompts import get_prompt, get_label
 from agent.storage import (
@@ -150,7 +151,7 @@ def analyze_behavioral_patterns(observations: list[dict],
     trajectory_block = _format_trajectory_block(trajectory, language=language)
 
     user_content = (
-        f"当前系统时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}（今年是{datetime.now().year}年）\n\n"
+        f"当前系统时间：{get_now().strftime('%Y-%m-%d %H:%M')}（今年是{get_now().year}年）\n\n"
         f"当前画像：\n{profile_text}\n"
         f"近期观察：\n{obs_text}\n"
         f"{trajectory_block}"
@@ -247,14 +248,14 @@ def cross_verify_suspected_facts(suspected_facts: list[dict], config: dict,
 
     # 按 subject 分类加载相关对话摘要作为佐证（限最近 3 个月）
     obs_context = ""
-    three_months_ago = datetime.now() - timedelta(days=90)
+    three_months_ago = get_now() - timedelta(days=90)
     for cat, subj in seen_subjects:
         if not subj:
             continue
         subj_summaries = load_summaries_by_observation_subject(subject=subj)
         all_subj = subj_summaries.get("before", [])
         all_subj = [s for s in all_subj
-                     if s.get('user_input_at') and s['user_input_at'].replace(tzinfo=None) >= three_months_ago]
+                     if s.get('user_input_at') and s['user_input_at'] >= three_months_ago]
         if all_subj:
             obs_context += f"\n[{cat}] {subj} 相关对话摘要：\n"
             for s in all_subj[-30:]:
@@ -270,7 +271,7 @@ def cross_verify_suspected_facts(suspected_facts: list[dict], config: dict,
             f"  易变区域: {json.dumps(trajectory.get('volatile_areas', []), ensure_ascii=False)}\n"
         )
 
-    now = datetime.now()
+    now = get_now()
     user_content = (
         f"当前系统时间：{now.strftime('%Y-%m-%d %H:%M')}（今年是{now.year}年）\n\n"
         f"待验证的怀疑画像：\n{items_text}"

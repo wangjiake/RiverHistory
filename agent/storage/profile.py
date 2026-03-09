@@ -3,6 +3,7 @@
 import json
 import logging
 from datetime import datetime, timedelta
+from agent.utils.time_context import get_now
 from ._db import get_db_connection, _as_dict, _as_dicts
 
 logger = logging.getLogger(__name__)
@@ -12,7 +13,7 @@ from psycopg2.extras import RealDictCursor
 
 def upsert_profile(category: str, field: str, value: str,
                    hypothesis_id: int | None = None):
-    now = datetime.now()
+    now = get_now()
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
@@ -67,7 +68,7 @@ def upsert_user_model(dimension: str, assessment: str,
                       reference_time=None):
     if isinstance(evidence_summary, (dict, list)):
         evidence_summary = json.dumps(evidence_summary, ensure_ascii=False)
-    now = reference_time or datetime.now()
+    now = reference_time or get_now()
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
@@ -104,7 +105,7 @@ def save_trajectory_summary(trajectory: dict, session_count: int = 0,
             return json.dumps(val, ensure_ascii=False)
         return val if val is not None else ""
 
-    now = reference_time or datetime.now()
+    now = reference_time or get_now()
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
@@ -149,7 +150,7 @@ def load_trajectory_summary() -> dict | None:
 def save_or_update_relationship(name: str | None, relation: str,
                                  details: dict | None = None,
                                  reference_time=None) -> int:
-    now = reference_time or datetime.now()
+    now = reference_time or get_now()
     details = details or {}
     conn = get_db_connection()
     try:
@@ -216,7 +217,7 @@ def save_profile_fact(category: str, subject: str, value: str,
                       evidence: list | None = None,
                       start_time=None) -> int:
     if not start_time:
-        start_time = datetime.now()
+        start_time = get_now()
     now = start_time
     if evidence is None:
         evidence = []
@@ -328,7 +329,7 @@ def save_profile_fact(category: str, subject: str, value: str,
 
 def close_time_period(fact_id: int, end_time=None, superseded_by: int | None = None,
                       reference_time=None):
-    now = reference_time or datetime.now()
+    now = reference_time or get_now()
     if not end_time:
         end_time = now
     conn = get_db_connection()
@@ -352,7 +353,7 @@ def close_time_period(fact_id: int, end_time=None, superseded_by: int | None = N
 
 
 def confirm_profile_fact(fact_id: int, reference_time=None):
-    now = reference_time if reference_time else datetime.now()
+    now = reference_time if reference_time else get_now()
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
@@ -367,7 +368,7 @@ def confirm_profile_fact(fact_id: int, reference_time=None):
 
 
 def add_evidence(fact_id: int, evidence_entry: dict, reference_time=None):
-    now = reference_time if reference_time else datetime.now()
+    now = reference_time if reference_time else get_now()
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
@@ -533,7 +534,7 @@ def load_timeline(category: str | None = None,
 
 
 def get_expired_facts(reference_time=None) -> list[dict]:
-    ref = reference_time if reference_time else datetime.now()
+    ref = reference_time if reference_time else get_now()
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -586,7 +587,7 @@ def load_disputed_facts() -> list[dict]:
 
 def resolve_dispute(old_fact_id: int, new_fact_id: int, accept_new: bool,
                     resolution_time=None):
-    now = resolution_time or datetime.now()
+    now = resolution_time or get_now()
     end_time = now
     conn = get_db_connection()
     try:
@@ -619,7 +620,7 @@ def resolve_dispute(old_fact_id: int, new_fact_id: int, accept_new: bool,
 
 
 def update_fact_decay(fact_id: int, new_decay_days: int, reference_time=None):
-    now = reference_time if reference_time else datetime.now()
+    now = reference_time if reference_time else get_now()
     new_expires = now + timedelta(days=new_decay_days)
     conn = get_db_connection()
     try:

@@ -1,6 +1,7 @@
 """Strategy storage."""
 
 from datetime import datetime, timedelta
+from agent.utils.time_context import get_now
 from ._db import get_db_connection
 
 
@@ -9,7 +10,7 @@ def save_strategy(hypothesis_category: str, hypothesis_subject: str,
                   trigger_condition: str, approach: str,
                   priority: float = 0.5, expires_days: int = 30,
                   reference_time=None):
-    now = reference_time if reference_time else datetime.now()
+    now = reference_time if reference_time else get_now()
     expires_at = now + timedelta(days=expires_days) if expires_days > 0 else None
     conn = get_db_connection()
     try:

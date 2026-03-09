@@ -92,7 +92,7 @@ def _parse_chatgpt(content: dict, conversation_time) -> list[dict]:
             ts = msgs[i]["create_time"]
             from datetime import timezone
             if ts:
-                timestamp = datetime.fromtimestamp(ts, tz=timezone.utc).replace(tzinfo=None)
+                timestamp = datetime.fromtimestamp(ts, tz=timezone.utc)
             else:
                 timestamp = conversation_time
 

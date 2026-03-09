@@ -2,7 +2,7 @@
 
 import sys
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from agent.config import load_config
 from agent.perceive import perceive
@@ -68,9 +68,10 @@ def load_all(count: int = 0) -> list:
     def _sort_key(r):
         t = r["conversation_time"]
         if t is None:
-            return datetime.min
-        # 统一去掉时区信息用于排序
-        return t.replace(tzinfo=None) if hasattr(t, 'tzinfo') and t.tzinfo else t
+            return datetime.min.replace(tzinfo=timezone.utc)
+        if t.tzinfo is None:
+            return t.replace(tzinfo=timezone.utc)
+        return t
 
     all_rows.sort(key=_sort_key)
 
@@ -114,7 +115,7 @@ def process_one(row: dict, config: dict, idx: int, total: int):
     for i, turn in enumerate(turns, 1):
         user_input = turn["user_input"]
         assistant_reply = turn["assistant_reply"]
-        timestamp = (turn["timestamp"] or session_created_at or datetime.now()) + timedelta(minutes=(i - 1) * 5)
+        timestamp = (turn["timestamp"] or session_created_at or datetime.now(timezone.utc)) + timedelta(minutes=(i - 1) * 5)
 
         print(f"  Turn {i}/{len(turns)}: {user_input[:60]}{'...' if len(user_input) > 60 else ''}")
 
@@ -194,7 +195,7 @@ def main():
             else:
                 print(f"⚠ Cannot reach LLM API at {api_base}")
 
-    start_time = datetime.now()
+    start_time = datetime.now(timezone.utc)
     print(f"\n=== Batch Processing ===")
     print(f"Source: {source}, Count: {'all' if count == 0 else count}")
     print(f"LLM: {config['llm'].get('model', '?')}")
@@ -228,7 +229,7 @@ def main():
 
         mark_processed(row["source"], row["id"])
 
-    elapsed = datetime.now() - start_time
+    elapsed = datetime.now(timezone.utc) - start_time
     print(f"\n{'='*60}")
     print(f"Completed: {len(rows)} conversations in {elapsed}")
     print(f"{'='*60}")

@@ -2,6 +2,7 @@
 
 import logging
 from datetime import datetime
+from agent.utils.time_context import get_now
 from agent.utils.llm_client import call_llm, is_llm_error
 
 logger = logging.getLogger(__name__)
@@ -95,7 +96,7 @@ def perceive(user_input: str, llm_config: dict, language: str = "en") -> dict:
     ]
 
     raw = call_llm(messages, llm_config).strip()
-    perception_at = datetime.now()
+    perception_at = get_now()
     if is_llm_error(raw):
         logger.warning("Perceive LLM call failed: %s", raw[:100])
     result = _parse_output(raw, user_input, language)

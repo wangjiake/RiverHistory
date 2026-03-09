@@ -2,6 +2,7 @@
 
 import json
 from datetime import datetime, timedelta
+from agent.utils.time_context import get_now
 from agent.utils.llm_client import call_llm
 from agent.core.sleep_prompts import get_prompt
 from agent.storage import (
@@ -23,7 +24,7 @@ def resolve_disputes_with_llm(disputed_pairs: list[dict], config: dict,
     # ── 规则预处理 ──
     rule_results = []
     llm_candidates = []
-    now = datetime.now()
+    now = get_now()
     for pair in disputed_pairs:
         old = pair["old"]
         new = pair["new"]
@@ -42,7 +43,7 @@ def resolve_disputes_with_llm(disputed_pairs: list[dict], config: dict,
             continue
 
         # 规则2：争议超过 90 天无新证据 → mention_count 高的胜出
-        dispute_age = (now - new_start.replace(tzinfo=None)).days if new_start else 0
+        dispute_age = (now - new_start).days if new_start else 0
         if dispute_age > 90:
             if new_mc > old_mc:
                 rule_results.append({
@@ -159,7 +160,7 @@ def resolve_disputes_with_llm(disputed_pairs: list[dict], config: dict,
             f"  易变区域: {json.dumps(trajectory.get('volatile_areas', []), ensure_ascii=False)}\n"
         )
 
-    now = datetime.now()
+    now = get_now()
     user_content = (
         f"当前系统时间：{now.strftime('%Y-%m-%d %H:%M')}（今年是{now.year}年）\n\n"
         f"待解决的矛盾：\n{items_text}"

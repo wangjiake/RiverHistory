@@ -1,6 +1,7 @@
 """Event log storage."""
 
 from datetime import datetime, timedelta
+from agent.utils.time_context import get_now
 from ._db import get_db_connection, _as_dicts
 from psycopg2.extras import RealDictCursor
 
@@ -11,7 +12,7 @@ def save_event(category: str, summary: str, session_id: str | None = None,
     if importance is None:
         importance = 0.5
 
-    now = reference_time if reference_time else datetime.now()
+    now = reference_time if reference_time else get_now()
     if decay_days and decay_days > 0:
         expires_at = now + timedelta(days=decay_days)
     else:

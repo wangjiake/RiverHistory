@@ -1,5 +1,6 @@
 
 from datetime import datetime, timedelta
+from agent.utils.time_context import get_now
 from agent.core.sleep_prompts import get_label
 
 
@@ -18,7 +19,7 @@ def prepare_profile(profile, query_text=None, config=None,
     if not active:
         return [], ""
 
-    now = datetime.now()
+    now = get_now()
     thirty_days_ago = now - timedelta(days=30)
 
     def _fallback_score(p):
@@ -26,7 +27,7 @@ def prepare_profile(profile, query_text=None, config=None,
         if p.get("layer") == "confirmed":
             score += 3
         updated = p.get("updated_at")
-        if updated and updated.replace(tzinfo=None) >= thirty_days_ago:
+        if updated and updated >= thirty_days_ago:
             score += 2
         mc = p.get("mention_count") or 0
         if mc >= 3:
