@@ -62,9 +62,24 @@ from .analysis import (
 from .disputes import resolve_disputes_with_llm
 from .trajectory import generate_trajectory_summary
 from ._data_access import get_unprocessed_conversations, mark_processed, _consolidate_profile
+from ._parsing import LLMPipelineError
 from ._maturity import _calculate_maturity_decay
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_int(val, default=None):
+    """Coerce LLM-returned value to int (handles str '42', float 42.0, etc.)."""
+    if isinstance(val, bool):
+        return default
+    if isinstance(val, int):
+        return val
+    if val is None:
+        return default
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return default
 
 
 def run(fallback_time=None):
@@ -82,7 +97,6 @@ def run(fallback_time=None):
     total_msgs = sum(len(msgs) for msgs in session_convs.values())
     print(f"  [sleep] {total_msgs} conversations, {len(session_convs)} sessions")
 
-    _pipeline_errors = 0
     all_msg_ids = []
     all_convs = []
     all_observations = []
@@ -98,6 +112,27 @@ def run(fallback_time=None):
         print("  [sleep] no trajectory yet")
         trajectory = None
 
+    try:
+        _run_pipeline_steps(
+            session_convs, config, language, existing_profile, trajectory,
+            all_msg_ids, all_convs, all_observations, fallback_time,
+        )
+    except LLMPipelineError:
+        logger.error("Sleep pipeline aborted: LLM unavailable. "
+                     "Conversations NOT marked as processed — will retry next run.")
+        print("  [sleep] ABORTED: LLM unavailable, will retry next run")
+        return
+
+    # Step 8: 标记已处理
+    mark_processed(all_msg_ids)
+    print(f"  [sleep] processed {len(all_msg_ids)} conversations")
+    print("  [sleep] done")
+
+
+def _run_pipeline_steps(session_convs, config, language, existing_profile, trajectory,
+                        all_msg_ids, all_convs, all_observations, fallback_time):
+    """Pipeline body extracted for LLMPipelineError isolation."""
+    _pipeline_errors = 0
     total_session_count = len(session_convs)
     for session_idx, (session_id, convs) in enumerate(session_convs.items(), 1):
         print(f"  [sleep] session {session_idx}/{total_session_count}")
@@ -246,7 +281,8 @@ def run(fallback_time=None):
 
     # 辅助：按 fact_id 查找画像
     def _find_fact(fid) -> dict | None:
-        if not fid:
+        fid = _safe_int(fid)
+        if fid is None:
             return None
         for p in current_profile:
             if p.get("id") == fid:
@@ -301,7 +337,8 @@ def run(fallback_time=None):
         )
 
         # 校验：检查是否所有观察都被分类
-        classified_indices = {c.get("obs_index") for c in classifications if c.get("obs_index") is not None}
+        classified_indices = {_safe_int(c.get("obs_index")) for c in classifications if c.get("obs_index") is not None}
+        classified_indices.discard(None)
         all_indices = set(range(len(all_observations)))
         missing_indices = all_indices - classified_indices
         if missing_indices:
@@ -335,16 +372,16 @@ def run(fallback_time=None):
 
         # 收集本轮受影响的 fact_id（供增量 cross_verify / resolve_disputes）
         for s in supports:
-            fid = s.get("fact_id")
-            if fid:
+            fid = _safe_int(s.get("fact_id"))
+            if fid is not None:
                 affected_fact_ids.add(fid)
         for c in contradictions:
-            fid = c.get("fact_id")
-            if fid:
+            fid = _safe_int(c.get("fact_id"))
+            if fid is not None:
                 affected_fact_ids.add(fid)
         for ea in evidence_against_list:
-            fid = ea.get("fact_id")
-            if fid:
+            fid = _safe_int(ea.get("fact_id"))
+            if fid is not None:
                 affected_fact_ids.add(fid)
 
         # 处理 support → 追加证据 + mention_count
@@ -518,7 +555,7 @@ def run(fallback_time=None):
 
     if suspected_facts:
         judgments = cross_verify_suspected_facts(suspected_facts, config, trajectory=trajectory, language=language)
-        judgment_map = {j["fact_id"]: j for j in judgments}
+        judgment_map = {_safe_int(j["fact_id"]): j for j in judgments if _safe_int(j.get("fact_id")) is not None}
 
         for f in suspected_facts:
             j = judgment_map.get(f["id"])
@@ -743,11 +780,5 @@ def run(fallback_time=None):
         _pipeline_errors += 1
         logger.error("snapshot failed: %s", e)
 
-    # Step 8: 标记已处理
-    mark_processed(all_msg_ids)
-    print(f"  [sleep] processed {len(all_msg_ids)} conversations")
-
     if _pipeline_errors:
         logger.warning("Sleep pipeline completed with %d error(s)", _pipeline_errors)
-
-    print("  [sleep] done")

@@ -103,7 +103,7 @@ def extract_events(conversations: list[dict], config: dict,
     dialogue = ""
     for msg in conversations:
         dialogue += f"用户：{msg['user_input']}\n"
-        dialogue += f"助手：{msg['assistant_reply']}\n\n"
+        dialogue += f"助手：{msg.get('assistant_reply') or ''}\n\n"
 
     if not dialogue.strip():
         return []

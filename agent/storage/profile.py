@@ -250,7 +250,8 @@ def save_profile_fact(category: str, subject: str, value: str,
                         "SELECT id, evidence, mention_count FROM user_profile "
                         "WHERE category = %s AND subject = %s "
                         "AND LOWER(TRIM(value)) = LOWER(TRIM(%s)) "
-                        "AND end_time IS NULL LIMIT 1",
+                        "AND end_time IS NULL AND human_end_time IS NULL "
+                        "AND (rejected IS NULL OR rejected = false) LIMIT 1",
                         (existing["category"], existing["subject"], value),
                     )
                     exact_match = cur.fetchone()
@@ -401,10 +402,12 @@ def _find_current_fact_cursor(cur, category: str, subject: str):
                "superseded_by, supersedes")
     _ORDER = "ORDER BY (superseded_by IS NULL) DESC, created_at DESC LIMIT 1"
 
+    _REJECT = "AND (rejected IS NULL OR rejected = false) AND human_end_time IS NULL"
+
     cur.execute(
         f"SELECT {_FIELDS} FROM user_profile "
         f"WHERE category = %s AND subject = %s AND end_time IS NULL "
-        f"{_ORDER}",
+        f"{_REJECT} {_ORDER}",
         (category, subject),
     )
     row = cur.fetchone()
@@ -417,7 +420,7 @@ def _find_current_fact_cursor(cur, category: str, subject: str):
         cur.execute(
             f"SELECT {_FIELDS} FROM user_profile "
             f"WHERE category = ANY(%s) AND subject = ANY(%s) AND end_time IS NULL "
-            f"{_ORDER}",
+            f"{_REJECT} {_ORDER}",
             (cat_syns, subj_syns),
         )
         row = cur.fetchone()
@@ -427,6 +430,7 @@ def _find_current_fact_cursor(cur, category: str, subject: str):
     cur.execute(
         f"SELECT {_FIELDS} FROM user_profile "
         f"WHERE category = ANY(%s) AND end_time IS NULL "
+        f"{_REJECT} "
         f"AND (subject ILIKE '%%' || %s || '%%' OR %s ILIKE '%%' || subject || '%%') "
         f"{_ORDER}",
         (cat_syns, subject, subject),
@@ -457,6 +461,7 @@ def load_suspected_profile() -> list[dict]:
                 "created_at, updated_at, supersedes "
                 "FROM user_profile "
                 "WHERE layer = 'suspected' AND end_time IS NULL "
+                "AND (rejected IS NULL OR rejected = false) AND human_end_time IS NULL "
                 "ORDER BY category, subject"
             )
             return _as_dicts(cur.fetchall())
@@ -485,7 +490,7 @@ def load_full_current_profile(exclude_superseded: bool = False) -> list[dict]:
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            where = "WHERE end_time IS NULL"
+            where = "WHERE end_time IS NULL AND (rejected IS NULL OR rejected = false) AND human_end_time IS NULL"
             if exclude_superseded:
                 where += " AND superseded_by IS NULL"
             cur.execute(
@@ -545,6 +550,7 @@ def get_expired_facts(reference_time=None) -> list[dict]:
                 "FROM user_profile "
                 "WHERE expires_at IS NOT NULL AND expires_at < %s "
                 "AND end_time IS NULL "
+                "AND (rejected IS NULL OR rejected = false) AND human_end_time IS NULL "
                 "ORDER BY expires_at ASC",
                 (ref,)
             )
