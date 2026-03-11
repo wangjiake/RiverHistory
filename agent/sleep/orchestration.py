@@ -361,9 +361,9 @@ def _run_pipeline_steps(session_convs, config, language, existing_profile, traje
 
         # 回写分类结果到 observations 表
         for c in classifications:
-            obs_idx = c.get("obs_index")
+            obs_idx = _safe_int(c.get("obs_index"))
             action = c.get("action", "")
-            if isinstance(obs_idx, int) and 0 <= obs_idx < len(all_observations):
+            if obs_idx is not None and 0 <= obs_idx < len(all_observations):
                 db_id = all_observations[obs_idx].get("_db_id")
                 if db_id:
                     update_observation_classification(db_id, action)
@@ -389,8 +389,8 @@ def _run_pipeline_steps(session_convs, config, language, existing_profile, traje
             fact = _find_fact(s.get("fact_id"))
             if fact:
                 # v20: 先计算 obs_time，传给 add_evidence 和 save_profile_fact
-                _obs_idx = s.get("obs_index")
-                _obs_time = all_observations[_obs_idx].get("_conv_time") if isinstance(_obs_idx, int) and 0 <= _obs_idx < len(all_observations) else latest_conv_time
+                _obs_idx = _safe_int(s.get("obs_index"))
+                _obs_time = all_observations[_obs_idx].get("_conv_time") if _obs_idx is not None and 0 <= _obs_idx < len(all_observations) else latest_conv_time
                 add_evidence(fact["id"], {"reason": s.get("reason", "")},
                              reference_time=_obs_time)
                 # 同值重复提及走 save_profile_fact 触发 mention_count++
@@ -408,8 +408,8 @@ def _run_pipeline_steps(session_convs, config, language, existing_profile, traje
         for ea in evidence_against_list:
             fact = _find_fact(ea.get("fact_id"))
             if fact:
-                _ea_idx = ea.get("obs_index")
-                _ea_time = all_observations[_ea_idx].get("_conv_time") if isinstance(_ea_idx, int) and 0 <= _ea_idx < len(all_observations) else latest_conv_time
+                _ea_idx = _safe_int(ea.get("obs_index"))
+                _ea_time = all_observations[_ea_idx].get("_conv_time") if _ea_idx is not None and 0 <= _ea_idx < len(all_observations) else latest_conv_time
                 add_evidence(fact["id"], {"reason": f"[反面] {ea.get('reason', '')}"},
                              reference_time=_ea_time)
                 pass
@@ -419,8 +419,8 @@ def _run_pipeline_steps(session_convs, config, language, existing_profile, traje
             print(f"  [sleep] creating {len(new_obs_cls)} new facts...")
             new_obs_data = []
             for c in new_obs_cls:
-                idx = c.get("obs_index")
-                if isinstance(idx, int) and 0 <= idx < len(all_observations):
+                idx = _safe_int(c.get("obs_index"))
+                if idx is not None and 0 <= idx < len(all_observations):
                     new_obs_data.append(all_observations[idx])
 
             if new_obs_data:
@@ -478,8 +478,8 @@ def _run_pipeline_steps(session_convs, config, language, existing_profile, traje
                 if not fact or not new_val:
                     continue
                 # v20: 先计算 obs_time
-                _obs_idx = c.get("obs_index")
-                _obs_time = all_observations[_obs_idx].get("_conv_time") if isinstance(_obs_idx, int) and 0 <= _obs_idx < len(all_observations) else latest_conv_time
+                _obs_idx = _safe_int(c.get("obs_index"))
+                _obs_time = all_observations[_obs_idx].get("_conv_time") if _obs_idx is not None and 0 <= _obs_idx < len(all_observations) else latest_conv_time
                 # 同值过滤
                 if new_val.strip().lower() == (fact.get("value") or "").strip().lower():
                     add_evidence(fact["id"], {"reason": c.get("reason", "再次提及")},
@@ -490,7 +490,7 @@ def _run_pipeline_steps(session_convs, config, language, existing_profile, traje
                     continue
                 # 直接创建 dispute pair，不用 LLM 判断
                 # 保存触发矛盾的原始对话，供 Step 5.1 判断
-                _obs = all_observations[_obs_idx] if isinstance(_obs_idx, int) and 0 <= _obs_idx < len(all_observations) else {}
+                _obs = all_observations[_obs_idx] if _obs_idx is not None and 0 <= _obs_idx < len(all_observations) else {}
                 _evidence_entry = {"reason": c.get("reason", "")}
                 if _obs.get("content"):
                     _evidence_entry["observation"] = _obs["content"]

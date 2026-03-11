@@ -221,7 +221,7 @@ def save_profile_fact(category: str, subject: str, value: str,
     now = start_time
     if evidence is None:
         evidence = []
-    if not decay_days or decay_days <= 0:
+    if decay_days is None or decay_days <= 0:
         decay_days = 365
     expires_at = now + timedelta(days=decay_days)
 
