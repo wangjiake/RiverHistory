@@ -3,10 +3,11 @@
 import os
 import sys
 import json
+import secrets
 import argparse
 from datetime import datetime, date, timedelta, timezone
 from decimal import Decimal
-from flask import Flask, render_template, jsonify, request, send_from_directory
+from flask import Flask, render_template, jsonify, request, send_from_directory, redirect, url_for, make_response
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
@@ -19,6 +20,50 @@ DB_NAME = _db.get("name", "Riverse")
 DB_USER = _db.get("user", "postgres")
 DB_HOST = _db.get("host", "localhost")
 IMG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "img")
+
+# Auth — read token from env var first, fall back to settings.yaml public_mode
+_ACCESS_TOKEN = (
+    os.environ.get("ACCESS_TOKEN", "").strip()
+    or _cfg.get("public_mode", {}).get("access_token", "").strip()
+)
+_COOKIE = "riverhistory_token"
+
+
+def _token_valid(token: str) -> bool:
+    if not _ACCESS_TOKEN:
+        return True  # no token configured → open access
+    try:
+        return secrets.compare_digest(token.encode(), _ACCESS_TOKEN.encode())
+    except Exception:
+        return False
+
+
+@app.before_request
+def check_auth():
+    if not _ACCESS_TOKEN:
+        return None
+    if request.path.startswith("/img/"):
+        return None
+    if request.endpoint in ("unlock_get", "unlock_post"):
+        return None
+    if _token_valid(request.cookies.get(_COOKIE, "")):
+        return None
+    return redirect(url_for("unlock_get"))
+
+
+@app.route("/unlock", methods=["GET"])
+def unlock_get():
+    return render_template("unlock.html", error=None)
+
+
+@app.route("/unlock", methods=["POST"])
+def unlock_post():
+    token = request.form.get("token", "").strip()
+    if _token_valid(token):
+        resp = make_response(redirect(url_for("index")))
+        resp.set_cookie(_COOKIE, token, max_age=60 * 60 * 24 * 365, httponly=False, samesite="Lax")
+        return resp
+    return render_template("unlock.html", error="Invalid token.")
 
 
 def get_conn():

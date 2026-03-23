@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Access Required</title>
+<style>
+:root {
+  --bg: #0f1117;
+  --bg-card: #161b22;
+  --border: #2d3348;
+  --text: #e1e4e8;
+  --text-muted: #8b92a5;
+  --accent: #58a6ff;
+  --red: #f85149;
+}
+body.light {
+  --bg: #ffffff;
+  --bg-card: #f6f8fa;
+  --border: #d0d7de;
+  --text: #1f2328;
+  --text-muted: #57606a;
+  --accent: #0969da;
+  --red: #cf222e;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+}
+.card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 40px 36px;
+    width: 100%;
+    max-width: 400px;
+    text-align: center;
+}
+.lock-icon {
+    font-size: 40px;
+    margin-bottom: 16px;
+}
+h1 {
+    font-size: 20px;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 8px;
+}
+p {
+    font-size: 14px;
+    color: var(--text-muted);
+    margin-bottom: 28px;
+}
+input[type="text"] {
+    width: 100%;
+    padding: 12px 14px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 14px;
+    font-family: monospace;
+    letter-spacing: 0.05em;
+    outline: none;
+    margin-bottom: 16px;
+    transition: border-color 0.2s;
+}
+input[type="text"]:focus {
+    border-color: var(--accent);
+}
+button[type="submit"] {
+    width: 100%;
+    padding: 12px;
+    background: #1f6feb;
+    border: none;
+    border-radius: 8px;
+    color: #fff;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+button[type="submit"]:hover { background: #388bfd; }
+.error {
+    margin-top: 16px;
+    padding: 10px 14px;
+    background: rgba(248, 81, 73, 0.1);
+    border: 1px solid rgba(248, 81, 73, 0.3);
+    border-radius: 6px;
+    color: var(--red);
+    font-size: 13px;
+}
+.theme-btn {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    padding: 6px 10px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+}
+.theme-btn:hover { border-color: var(--accent); }
+</style>
+</head>
+<body>
+<button class="theme-btn" id="theme-toggle" onclick="toggleTheme()" title="Toggle theme">🌙</button>
+<div class="card">
+    <div class="lock-icon">🔒</div>
+    <h1>Access Required</h1>
+    <p>Enter your access token to continue.</p>
+    <form method="POST" action="/unlock">
+        <input type="text" name="token" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autofocus autocomplete="off" spellcheck="false">
+        <button type="submit">Enter</button>
+    </form>
+    {% if error %}
+    <div class="error">{{ error }}</div>
+    {% endif %}
+</div>
+<script>
+(function() {
+  const saved = localStorage.getItem('theme') || 'dark';
+  if (saved === 'light') document.body.classList.add('light');
+  updateThemeBtn();
+})();
+
+function toggleTheme() {
+  const isLight = document.body.classList.toggle('light');
+  localStorage.setItem('theme', isLight ? 'light' : 'dark');
+  updateThemeBtn();
+}
+
+function updateThemeBtn() {
+  const btn = document.getElementById('theme-toggle');
+  if (btn) btn.textContent = document.body.classList.contains('light') ? '🌙' : '☀️';
+}
+</script>
+</body>
+</html>
