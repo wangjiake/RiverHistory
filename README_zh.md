@@ -93,6 +93,10 @@ python run.py all max           # 三个源的数据混在一起，按时间从�
 # 7. 查看结果
 python web.py --db Riverse
 # 打开浏览器访问 http://localhost:2345
+
+# 可选：设置访问令牌保护页面（部署到服务器时推荐）
+ACCESS_TOKEN=your-secret python web.py --db Riverse
+# 首次访问会跳转到验证页面，输入令牌后进入
 ```
 
 > **注意：** 每次运行 `run.py` 会自动清空所有画像表再重新写入，源数据表不受影响。可以放心重复运行。

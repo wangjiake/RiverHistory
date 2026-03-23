@@ -94,6 +94,10 @@ python run.py all max           # All 3 sources merged together, sorted by time,
 # 7. View results
 python web.py --db Riverse
 # Open http://localhost:2345 in your browser
+
+# Optional: protect with an access token (recommended for server deployment)
+ACCESS_TOKEN=your-secret python web.py --db Riverse
+# First visit will redirect to an unlock page — enter the token to access
 ```
 
 > **Note:** Each `run.py` execution automatically clears all profile tables before writing new data. Source data tables are not affected. Safe to re-run at any time.
