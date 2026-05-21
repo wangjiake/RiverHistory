@@ -60,7 +60,21 @@ CREATE TABLE IF NOT EXISTS demo (
 );
 
 
+-- ── Family multi-owner support (synced with JKRiver) ─────────────────────
+-- Every business row is namespaced by owner_id. The seeded admin account
+-- (id=1) is created by main() after CREATE TABLE, with the name read from
+-- settings.yaml (admin_name) or the OS user — see _seed_admin_account().
+CREATE TABLE IF NOT EXISTS accounts (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    display_name TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+
 CREATE TABLE IF NOT EXISTS raw_conversations (
+    owner_id INTEGER DEFAULT 1 REFERENCES accounts(id),
     id SERIAL PRIMARY KEY,
     session_id VARCHAR(64) NOT NULL,
     session_created_at TIMESTAMPTZ,
@@ -75,6 +89,7 @@ CREATE TABLE IF NOT EXISTS raw_conversations (
 CREATE INDEX IF NOT EXISTS idx_raw_conv_session ON raw_conversations(session_id);
 
 CREATE TABLE IF NOT EXISTS conversation_turns (
+    owner_id INTEGER DEFAULT 1 REFERENCES accounts(id),
     id SERIAL PRIMARY KEY,
     session_id VARCHAR(64) NOT NULL,
     session_created_at TIMESTAMPTZ,
@@ -109,6 +124,7 @@ CREATE INDEX IF NOT EXISTS idx_conv_turns_session ON conversation_turns(session_
 CREATE INDEX IF NOT EXISTS idx_conv_turns_input_at ON conversation_turns(user_input_at DESC);
 
 CREATE TABLE IF NOT EXISTS event_log (
+    owner_id INTEGER DEFAULT 1 REFERENCES accounts(id),
     id SERIAL PRIMARY KEY,
     category TEXT NOT NULL,
     summary TEXT NOT NULL,
@@ -125,6 +141,7 @@ CREATE INDEX IF NOT EXISTS idx_event_active ON event_log(expires_at) WHERE expir
 CREATE INDEX IF NOT EXISTS idx_event_importance ON event_log(importance DESC);
 
 CREATE TABLE IF NOT EXISTS session_meta (
+    owner_id INTEGER DEFAULT 1 REFERENCES accounts(id),
     session_id VARCHAR(64) PRIMARY KEY,
     custom_name TEXT,
     pinned BOOLEAN DEFAULT FALSE,
@@ -134,6 +151,7 @@ CREATE TABLE IF NOT EXISTS session_meta (
 );
 
 CREATE TABLE IF NOT EXISTS session_tags (
+    owner_id INTEGER DEFAULT 1 REFERENCES accounts(id),
     id SERIAL PRIMARY KEY,
     session_id VARCHAR(64) NOT NULL,
     tag TEXT NOT NULL,
@@ -145,6 +163,7 @@ CREATE INDEX IF NOT EXISTS idx_session_tags_session ON session_tags(session_id);
 CREATE INDEX IF NOT EXISTS idx_session_tags_tag ON session_tags(tag);
 
 CREATE TABLE IF NOT EXISTS session_summaries (
+    owner_id INTEGER DEFAULT 1 REFERENCES accounts(id),
     id SERIAL PRIMARY KEY,
     session_id VARCHAR(64) NOT NULL UNIQUE,
     intent_summary TEXT,
@@ -152,6 +171,7 @@ CREATE TABLE IF NOT EXISTS session_summaries (
 );
 
 CREATE TABLE IF NOT EXISTS observations (
+    owner_id INTEGER DEFAULT 1 REFERENCES accounts(id),
     id SERIAL PRIMARY KEY,
     session_id VARCHAR(64) NOT NULL,
     observation_type VARCHAR(32) NOT NULL,
@@ -169,48 +189,23 @@ CREATE INDEX IF NOT EXISTS idx_obs_session ON observations(session_id);
 CREATE INDEX IF NOT EXISTS idx_obs_type ON observations(observation_type);
 CREATE INDEX IF NOT EXISTS idx_obs_subject ON observations(subject);
 
-CREATE TABLE IF NOT EXISTS hypotheses (
-    id SERIAL PRIMARY KEY,
-    category TEXT NOT NULL,
-    subject TEXT NOT NULL,
-    claim TEXT NOT NULL,
-    evidence_for JSONB DEFAULT '[]',
-    evidence_against JSONB DEFAULT '[]',
-    confidence FLOAT DEFAULT 0.5,
-    mention_count INTEGER DEFAULT 1,
-    status VARCHAR(16) DEFAULT 'pending',
-    source_type VARCHAR(16) DEFAULT 'stated',
-    decay_days INTEGER,
-    expires_at TIMESTAMPTZ,
-    first_seen_at TIMESTAMPTZ DEFAULT NOW(),
-    last_updated_at TIMESTAMPTZ DEFAULT NOW(),
-    confirmed_at TIMESTAMPTZ,
-    suspected_value TEXT,
-    suspected_confidence FLOAT DEFAULT 0,
-    suspected_since TIMESTAMPTZ,
-    suspected_evidence JSONB DEFAULT '[]',
-    history JSONB DEFAULT '[]'
-);
-
-CREATE INDEX IF NOT EXISTS idx_hyp_status ON hypotheses(status);
-CREATE INDEX IF NOT EXISTS idx_hyp_category ON hypotheses(category);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_hyp_cat_subject ON hypotheses(category, subject) WHERE status IN ('pending', 'active', 'established');
-CREATE INDEX IF NOT EXISTS idx_hyp_mention_count ON hypotheses(mention_count DESC);
+-- hypotheses table removed (replaced by user_profile with layer column)
 
 CREATE TABLE IF NOT EXISTS current_profile (
+    owner_id INTEGER DEFAULT 1 REFERENCES accounts(id),
     id SERIAL PRIMARY KEY,
     category TEXT NOT NULL,
     field TEXT NOT NULL,
     value TEXT NOT NULL,
-    hypothesis_id INTEGER REFERENCES hypotheses(id),
     confirmed_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_profile_category ON current_profile(category);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_profile_cat_field_value ON current_profile(category, field, value);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_curprof_owner_cat_field_value ON current_profile(owner_id, category, field, value);
 
 CREATE TABLE IF NOT EXISTS user_profile (
+    owner_id INTEGER DEFAULT 1 REFERENCES accounts(id),
     id SERIAL PRIMARY KEY,
     category TEXT NOT NULL,
     subject TEXT NOT NULL,
@@ -240,14 +235,18 @@ CREATE INDEX IF NOT EXISTS idx_up_active ON user_profile(layer, end_time) WHERE 
 CREATE INDEX IF NOT EXISTS idx_up_rejected ON user_profile(rejected) WHERE rejected = TRUE;
 
 CREATE TABLE IF NOT EXISTS user_model (
+    owner_id INTEGER DEFAULT 1 REFERENCES accounts(id),
     id SERIAL PRIMARY KEY,
-    dimension TEXT NOT NULL UNIQUE,
+    dimension TEXT NOT NULL,
     assessment TEXT NOT NULL,
     evidence_summary TEXT,
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_user_model_owner_dim ON user_model(owner_id, dimension);
 CREATE TABLE IF NOT EXISTS strategies (
+    owner_id INTEGER DEFAULT 1 REFERENCES accounts(id),
     id SERIAL PRIMARY KEY,
     hypothesis_category TEXT NOT NULL,
     hypothesis_subject TEXT NOT NULL,
@@ -267,6 +266,7 @@ CREATE INDEX IF NOT EXISTS idx_strat_status ON strategies(status);
 CREATE INDEX IF NOT EXISTS idx_strat_hypothesis ON strategies(hypothesis_category, hypothesis_subject);
 
 CREATE TABLE IF NOT EXISTS trajectory_summary (
+    owner_id INTEGER DEFAULT 1 REFERENCES accounts(id),
     id SERIAL PRIMARY KEY,
     life_phase TEXT NOT NULL,
     phase_characteristics TEXT NOT NULL,
@@ -283,6 +283,7 @@ CREATE TABLE IF NOT EXISTS trajectory_summary (
 );
 
 CREATE TABLE IF NOT EXISTS relationships (
+    owner_id INTEGER DEFAULT 1 REFERENCES accounts(id),
     id SERIAL PRIMARY KEY,
     name TEXT,
     relation TEXT NOT NULL,
@@ -298,6 +299,7 @@ CREATE INDEX IF NOT EXISTS idx_rel_name ON relationships(name);
 CREATE INDEX IF NOT EXISTS idx_rel_relation ON relationships(relation);
 
 CREATE TABLE IF NOT EXISTS review_log (
+    owner_id INTEGER DEFAULT 1 REFERENCES accounts(id),
     id SERIAL PRIMARY KEY,
     target_table VARCHAR(32) NOT NULL,
     target_id INTEGER NOT NULL,
@@ -311,6 +313,7 @@ CREATE TABLE IF NOT EXISTS review_log (
 CREATE INDEX IF NOT EXISTS idx_review_log_target ON review_log(target_table, target_id);
 
 CREATE TABLE IF NOT EXISTS finance_transactions (
+    owner_id INTEGER DEFAULT 1 REFERENCES accounts(id),
     id SERIAL PRIMARY KEY,
     transaction_date TIMESTAMPTZ NOT NULL,
     merchant TEXT NOT NULL,
@@ -338,6 +341,7 @@ CREATE TABLE IF NOT EXISTS finance_merchant_categories (
 );
 
 CREATE TABLE IF NOT EXISTS withings_tokens (
+    owner_id INTEGER DEFAULT 1 REFERENCES accounts(id),
     id SERIAL PRIMARY KEY,
     user_id TEXT NOT NULL UNIQUE,
     access_token TEXT NOT NULL,
@@ -349,6 +353,7 @@ CREATE TABLE IF NOT EXISTS withings_tokens (
 );
 
 CREATE TABLE IF NOT EXISTS withings_measures (
+    owner_id INTEGER DEFAULT 1 REFERENCES accounts(id),
     id SERIAL PRIMARY KEY,
     withings_grpid BIGINT NOT NULL,
     measured_at TIMESTAMPTZ NOT NULL,
@@ -364,6 +369,7 @@ CREATE TABLE IF NOT EXISTS withings_measures (
 CREATE INDEX IF NOT EXISTS idx_wm_type_date ON withings_measures(measure_type, measured_at DESC);
 
 CREATE TABLE IF NOT EXISTS withings_activity (
+    owner_id INTEGER DEFAULT 1 REFERENCES accounts(id),
     id SERIAL PRIMARY KEY,
     activity_date DATE NOT NULL UNIQUE,
     steps INTEGER,
@@ -380,6 +386,7 @@ CREATE TABLE IF NOT EXISTS withings_activity (
 CREATE INDEX IF NOT EXISTS idx_wa_date ON withings_activity(activity_date DESC);
 
 CREATE TABLE IF NOT EXISTS withings_sleep (
+    owner_id INTEGER DEFAULT 1 REFERENCES accounts(id),
     id SERIAL PRIMARY KEY,
     sleep_date DATE NOT NULL UNIQUE,
     start_time TIMESTAMPTZ,
@@ -401,6 +408,7 @@ CREATE TABLE IF NOT EXISTS withings_sleep (
 CREATE INDEX IF NOT EXISTS idx_ws_date ON withings_sleep(sleep_date DESC);
 
 CREATE TABLE IF NOT EXISTS withings_sync_log (
+    owner_id INTEGER DEFAULT 1 REFERENCES accounts(id),
     id SERIAL PRIMARY KEY,
     data_type TEXT NOT NULL,
     last_sync_at TIMESTAMPTZ NOT NULL,
@@ -412,6 +420,7 @@ CREATE TABLE IF NOT EXISTS withings_sync_log (
 CREATE INDEX IF NOT EXISTS idx_wsl_type ON withings_sync_log(data_type, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS proactive_log (
+    owner_id INTEGER DEFAULT 1 REFERENCES accounts(id),
     id SERIAL PRIMARY KEY,
     chat_id BIGINT NOT NULL,
     trigger_type VARCHAR(50) NOT NULL,
@@ -423,6 +432,7 @@ CREATE TABLE IF NOT EXISTS proactive_log (
 CREATE INDEX IF NOT EXISTS idx_proactive_log_chat_sent ON proactive_log(chat_id, sent_at DESC);
 
 CREATE TABLE IF NOT EXISTS memory_embeddings (
+    owner_id INTEGER DEFAULT 1 REFERENCES accounts(id),
     id SERIAL PRIMARY KEY,
     source_table VARCHAR(32) NOT NULL,
     source_id INTEGER NOT NULL,
@@ -436,6 +446,7 @@ CREATE TABLE IF NOT EXISTS memory_embeddings (
 );
 
 CREATE TABLE IF NOT EXISTS memory_snapshot (
+    owner_id INTEGER DEFAULT 1 REFERENCES accounts(id),
     id SERIAL PRIMARY KEY,
     snapshot_text TEXT NOT NULL,
     profile_count INTEGER DEFAULT 0,
@@ -443,6 +454,7 @@ CREATE TABLE IF NOT EXISTS memory_snapshot (
 );
 
 CREATE TABLE IF NOT EXISTS fact_edges (
+    owner_id INTEGER DEFAULT 1 REFERENCES accounts(id),
     id SERIAL PRIMARY KEY,
     source_fact_id INTEGER NOT NULL REFERENCES user_profile(id) ON DELETE CASCADE,
     target_fact_id INTEGER NOT NULL REFERENCES user_profile(id) ON DELETE CASCADE,
@@ -457,6 +469,7 @@ CREATE INDEX IF NOT EXISTS idx_fe_source ON fact_edges(source_fact_id);
 CREATE INDEX IF NOT EXISTS idx_fe_target ON fact_edges(target_fact_id);
 
 CREATE TABLE IF NOT EXISTS memory_clusters (
+    owner_id INTEGER DEFAULT 1 REFERENCES accounts(id),
     id SERIAL PRIMARY KEY,
     cluster_index INTEGER NOT NULL,
     theme TEXT,
@@ -470,6 +483,7 @@ CREATE TABLE IF NOT EXISTS memory_clusters (
 );
 
 CREATE TABLE IF NOT EXISTS outsource_tasks (
+    owner_id INTEGER DEFAULT 1 REFERENCES accounts(id),
     id SERIAL PRIMARY KEY,
     task_id VARCHAR(36) UNIQUE NOT NULL,  -- UUID
     title TEXT NOT NULL,
@@ -491,6 +505,7 @@ CREATE INDEX IF NOT EXISTS idx_ot_status ON outsource_tasks(status);
 CREATE INDEX IF NOT EXISTS idx_ot_created ON outsource_tasks(created_at DESC);
 
 CREATE TABLE IF NOT EXISTS token_usage (
+    owner_id INTEGER DEFAULT 1 REFERENCES accounts(id),
     id SERIAL PRIMARY KEY,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     model VARCHAR(200),
@@ -501,6 +516,47 @@ CREATE TABLE IF NOT EXISTS token_usage (
 );
 CREATE INDEX IF NOT EXISTS idx_token_usage_created_at ON token_usage (created_at);
 """
+
+
+def _resolve_admin_name(cfg: dict) -> tuple[str, str]:
+    """Pick the seed admin (id=1) name + display_name.
+
+    Priority:
+      1. settings.yaml `admin_name` / `admin_display_name`
+      2. OS user (whoami) — `os.getlogin()` falling back to USER env
+      3. literal 'jk' / 'JK' as final fallback
+    """
+    import os
+    name = cfg.get("admin_name")
+    display = cfg.get("admin_display_name")
+    if not name:
+        try:
+            name = os.getlogin()
+        except OSError:
+            name = os.environ.get("USER") or "jk"
+    if not display:
+        display = name.upper() if name else "JK"
+    return name, display
+
+
+def _seed_admin_account(cur, cfg: dict):
+    """Insert the admin row (id=1) if accounts is empty.
+
+    Idempotent on re-runs: ON CONFLICT keeps whatever's already there. So
+    setup_db.py can be re-run without overwriting accounts a user already
+    customised via JKRiver's family UI.
+    """
+    name, display = _resolve_admin_name(cfg)
+    cur.execute(
+        "INSERT INTO accounts (id, name, display_name) VALUES (%s, %s, %s) "
+        "ON CONFLICT (id) DO NOTHING",
+        (1, name, display),
+    )
+    # Keep the SERIAL sequence past 1 so subsequent INSERTs don't collide.
+    cur.execute(
+        "SELECT setval('accounts_id_seq', GREATEST((SELECT MAX(id) FROM accounts), 1))"
+    )
+    print(f"  Seeded admin account: id=1 name={name!r} display={display!r}")
 
 
 def main():
@@ -527,6 +583,7 @@ def main():
     conn = psycopg2.connect(dbname=args.db, user=args.user, host=args.host)
     cur = conn.cursor()
     cur.execute(SCHEMA_SQL)
+    _seed_admin_account(cur, _cfg)
     conn.commit()
     cur.close()
     conn.close()

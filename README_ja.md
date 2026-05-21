@@ -25,6 +25,14 @@
 
 > **費用に関する注意：** リモート LLM API（OpenAI、Anthropic など）使用時、大量のコードや非常に長いメッセージを含む会話は多くのトークンを消費します。実行前にエクスポートデータを確認し、不要なコンテンツを削除してください。ローカルモデル（Ollama）は無料です。
 
+### 2026年5月の更新
+
+- **マルチオーナー対応** — すべての業務テーブルに `owner_id` カラムを追加。[JKRiver](https://github.com/wangjiake/JKRiver) のファミリーモードとデータベースを共有する場合、`run.py --owner-name <名前>` で書き込み先の家族メンバーを指定できる。単一アカウント運用は従来通り。
+- **`hypotheses` テーブル削除** — ライフサイクルは `user_profile.layer`（'suspected' → 'confirmed'）に統合。書き込みは `save_profile_fact()` に一本化。
+- **プロンプト移動** — 多言語プロンプトは `agent/config/prompts/{zh,en,ja}.yaml` に集約。`agent.config.prompts.get_prompt` で読み込み。旧 `agent/core/sleep_prompts.py` は削除。
+- **Sleep パイプライン分割** — `agent/sleep/orchestration.py` は4つのステップモジュール（`steps_extract.py` / `steps_analyze.py` / `steps_maintain.py` / `steps_output.py`）に処理を委譲。CLI エントリ `run(owner_id=...)` のシグネチャは変更なし。
+- **初期化時に admin アカウント自動播種** — `setup_db.py` が `accounts` テーブルに id=1 の管理者を作成。名前は `settings.yaml.admin_name` 優先、なければ OS ユーザー（`whoami`）。冪等で再実行安全。
+
 ### 機能
 
 - ChatGPT / Claude / Gemini からローカルにエクスポートした会話履歴をデータベースにインポート
@@ -80,15 +88,18 @@ python import_data.py --gemini "data/Gemini/マイ アクティビティ.html"
 # 注意：Geminiのエクスポートファイル名は言語によって異なります。実際のファイル名に合わせてコマンドを変更してください
 
 # 6. プロフィール抽出を実行
-#    形式: python run.py <ソース> <件数>
-#    ソース: chatgpt / claude / gemini / all
-#    件数:   数字 = 最も古いものから N 件処理, max = 全件処理
+#    形式: python run.py <ソース> <件数> [--owner-name <名前>]
+#    ソース:        chatgpt / claude / gemini / all
+#    件数:          数字 = 最も古いものから N 件処理, max = 全件処理
+#    --owner-name:  書き込み先の家族メンバー（accounts.name）を指定。
+#                   省略可 — DB にアカウントが1つだけなら自動選択。
+#                   JKRiver のファミリーモードと共有時は必須（混入防止）。
 #    すべてのコマンドは会話の時系列順（古い順）に処理されます
 
-python run.py chatgpt 50       # ChatGPTのみ、最も古い50件を処理
-python run.py claude max       # Claudeのみ、全件処理
-python run.py gemini 100       # Geminiのみ、最も古い100件を処理
-python run.py all max           # 全3ソースを時系列順に混合して全件処理（demoは含まない）
+python run.py chatgpt 50                          # ChatGPT 50件、ownerは自動選択
+python run.py claude max --owner-name jk          # Claude 全件、jk アカウントに書き込み
+python run.py gemini 100 --owner-name wife        # Gemini 100件、wife アカウントに書き込み
+python run.py all max                              # 3ソース混合、ownerは自動選択
 
 # 7. 結果を確認
 python web.py --db Riverse
@@ -99,7 +110,7 @@ ACCESS_TOKEN=your-secret python web.py --db Riverse
 # 初回アクセス時にトークン入力画面が表示されます
 ```
 
-> **注意：** `run.py` を実行するたびに、すべてのプロフィールテーブルが自動的にクリアされてから再書き込みされます。ソースデータテーブルは影響を受けません。何度でも安全に再実行できます。
+> **注意：** `run.py` は自動的にテーブルをクリアしなくなりました。最初からやり直す場合は `python reset_db.py` を先に実行してください。インポート済みソースデータ（chatgpt/claude/gemini/demo テーブル）はそのまま保持されます。
 
 ### チャットデータがない場合：デモで体験
 
@@ -161,20 +172,26 @@ python reset_db.py --db mydb        # データベース名を指定
 │   └── demo3.json       # デモ：Jake Morrison（英語、20組）
 ├── agent/
 │   ├── perceive.py      # 知覚モジュール — ユーザー入力を分類
-│   ├── config/          # 設定ローダー
-│   ├── storage/         # データベース操作（モジュラーサブパッケージ）
+│   ├── config/
+│   │   ├── __init__.py  # settings.yaml ローダー
+│   │   ├── owner.py     # --owner-name → owner_id 解決（accounts テーブル参照）
+│   │   ├── prompts.py   # 多言語プロンプトローダー
+│   │   └── prompts/     # zh.yaml / en.yaml / ja.yaml プロンプトテキスト
+│   ├── storage/         # データベース操作（owner_id 対応モジュラーサブパッケージ）
 │   │   ├── _db.py       # 接続とヘルパー
-│   │   ├── profile.py   # プロフィール事実 CRUD
-│   │   ├── hypotheses.py # 仮説ライフサイクル
+│   │   ├── profile.py   # プロフィール事実 CRUD（旧 hypotheses モジュールを統合）
 │   │   ├── observations.py, events.py, conversation.py, ...
 │   │   └── parsing.py   # 履歴フォーマットパーサー（Claude/ChatGPT/Gemini）
-│   ├── utils/           # LLMクライアント
-│   ├── core/
-│   │   └── sleep_prompts.py  # 多言語プロンプト（zh/en/ja）
+│   ├── utils/           # LLMクライアント、embedding、clustering
 │   └── sleep/           # オフライン抽出パイプライン（モジュラーサブパッケージ）
-│       ├── orchestration.py  # メイン run() エントリポイント
-│       ├── extractors.py     # 観測と事実抽出
-│       ├── analysis.py       # 行動分析とクロス検証
+│       ├── orchestration.py  # run(owner_id) — シングル owner エントリポイント
+│       ├── _pipeline_state.py # ステップ間共有 state（owner_id を保持）
+│       ├── steps_extract.py  # Step 1-2: 観測 + タグ抽出
+│       ├── steps_analyze.py  # Step 3-5: 分類、行動、クロス検証
+│       ├── steps_maintain.py # Step 6-7: edges、有効期限、成熟度減衰
+│       ├── steps_output.py   # Step 8-: user_model、軌跡、スナップショット
+│       ├── extractors.py     # LLM 抽出ヘルパー
+│       ├── analysis.py       # LLM 分析ヘルパー
 │       ├── disputes.py       # 矛盾解決
 │       └── trajectory.py     # 人生軌跡サマリー
 └── templates/

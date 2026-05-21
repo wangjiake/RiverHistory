@@ -1,0 +1,465 @@
+
+import hashlib
+import json
+import logging
+import math
+import requests
+from psycopg2.extras import RealDictCursor
+from agent.storage import get_db_connection
+from agent.config.prompts import get_labels
+
+logger = logging.getLogger(__name__)
+
+EMBEDDING_DIM = 1024
+MIN_ROWS_FOR_INDEX = 100
+DEFAULT_MIN_SCORE = 0.40
+
+_table_ensured = False
+_pgvector_available = None  # None = not checked yet
+
+def _check_pgvector() -> bool:
+    """Check if pgvector extension is available and enable it."""
+    global _pgvector_available
+    if _pgvector_available is not None:
+        return _pgvector_available
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            try:
+                cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+                conn.commit()
+                _pgvector_available = True
+            except Exception as e:
+                conn.rollback()
+                logger.debug("pgvector not available: %s", e)
+                _pgvector_available = False
+    finally:
+        conn.close()
+    return _pgvector_available
+
+def _ensure_embedding_table():
+    global _table_ensured
+    if _table_ensured:
+        return
+    has_pgvector = _check_pgvector()
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS memory_embeddings (
+                    id SERIAL PRIMARY KEY,
+                    source_table VARCHAR(32) NOT NULL,
+                    source_id INTEGER NOT NULL,
+                    content_hash VARCHAR(64) NOT NULL,
+                    text_content TEXT NOT NULL,
+                    embedding JSONB NOT NULL,
+                    model VARCHAR(64),
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE(source_table, source_id)
+                );
+            """)
+            if has_pgvector:
+                # Add vector column if it doesn't exist
+                cur.execute(f"""
+                    DO $$
+                    BEGIN
+                        IF NOT EXISTS (
+                            SELECT 1 FROM information_schema.columns
+                            WHERE table_name = 'memory_embeddings'
+                            AND column_name = 'embedding_vec'
+                        ) THEN
+                            ALTER TABLE memory_embeddings ADD COLUMN embedding_vec vector({EMBEDDING_DIM});
+                        END IF;
+                    END $$;
+                """)
+                # Migrate existing JSONB data to vector column
+                cur.execute("""
+                    UPDATE memory_embeddings
+                    SET embedding_vec = embedding::text::vector
+                    WHERE embedding_vec IS NULL AND embedding IS NOT NULL
+                """)
+                # Create IVFFlat index if enough rows exist
+                cur.execute("SELECT COUNT(*) FROM memory_embeddings")
+                count = cur.fetchone()[0]
+                if count >= MIN_ROWS_FOR_INDEX:
+                    cur.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_memory_embeddings_vec
+                        ON memory_embeddings USING ivfflat (embedding_vec vector_cosine_ops)
+                        WITH (lists = 100)
+                    """)
+        conn.commit()
+        _table_ensured = True
+    finally:
+        conn.close()
+
+def get_embedding(text: str, model: str = "",
+                  api_base: str = "") -> list[float]:
+    resp = requests.post(
+        f"{api_base}/api/embed",
+        json={"model": model, "input": text},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    return data["embeddings"][0]
+
+def cosine_similarity(a: list[float], b: list[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(x * x for x in b))
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+def _vector_search_pgvector(query_vec: list[float], top_k: int, min_score: float,
+                            source_tables: list[str] | None,
+                            owner_id: int | None = None) -> list[dict]:
+    """Use pgvector SQL for similarity search."""
+    vec_str = "[" + ",".join(str(v) for v in query_vec) + "]"
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            owner_clause = " AND owner_id = %s" if owner_id is not None else ""
+            owner_param: tuple = (owner_id,) if owner_id is not None else ()
+            if source_tables:
+                cur.execute(f"""
+                    SELECT source_table, source_id, text_content,
+                           1 - (embedding_vec <=> %s::vector) AS score
+                    FROM memory_embeddings
+                    WHERE source_table = ANY(%s)
+                      AND embedding_vec IS NOT NULL
+                      AND 1 - (embedding_vec <=> %s::vector) >= %s
+                      {owner_clause}
+                    ORDER BY embedding_vec <=> %s::vector
+                    LIMIT %s
+                """, (vec_str, source_tables, vec_str, min_score, *owner_param, vec_str, top_k))
+            else:
+                cur.execute(f"""
+                    SELECT source_table, source_id, text_content,
+                           1 - (embedding_vec <=> %s::vector) AS score
+                    FROM memory_embeddings
+                    WHERE embedding_vec IS NOT NULL
+                      AND 1 - (embedding_vec <=> %s::vector) >= %s
+                      {owner_clause}
+                    ORDER BY embedding_vec <=> %s::vector
+                    LIMIT %s
+                """, (vec_str, vec_str, min_score, *owner_param, vec_str, top_k))
+            return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def _vector_search_python(query_vec: list[float], top_k: int, min_score: float,
+                          source_tables: list[str] | None,
+                          owner_id: int | None = None) -> list[dict]:
+    """Fallback: full-table scan with Python cosine similarity."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            if owner_id is not None:
+                cur.execute(
+                    "SELECT source_table, source_id, text_content, embedding "
+                    "FROM memory_embeddings WHERE owner_id = %s",
+                    (owner_id,),
+                )
+            else:
+                cur.execute(
+                    "SELECT source_table, source_id, text_content, embedding "
+                    "FROM memory_embeddings"
+                )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    if not rows:
+        return []
+
+    scored = []
+    for row in rows:
+        if source_tables and row["source_table"] not in source_tables:
+            continue
+        emb = row["embedding"]
+        if isinstance(emb, str):
+            emb = json.loads(emb)
+        score = cosine_similarity(query_vec, emb)
+        if score >= min_score:
+            scored.append({
+                "source_table": row["source_table"],
+                "source_id": row["source_id"],
+                "text_content": row["text_content"],
+                "score": score,
+            })
+
+    scored.sort(key=lambda x: x["score"], reverse=True)
+    return scored[:top_k]
+
+
+def vector_search(query_text: str, config: dict,
+                  top_k: int = 5, min_score: float = DEFAULT_MIN_SCORE,
+                  source_tables: list[str] | None = None,
+                  owner_id: int | None = None) -> list[dict]:
+    emb_cfg = config.get("embedding", {})
+    model = emb_cfg.get("model", "")
+    api_base = emb_cfg.get("api_base", "")
+    search_cfg = emb_cfg.get("search", {})
+    top_k = search_cfg.get("top_k", top_k)
+    min_score = search_cfg.get("min_score", min_score)
+
+    query_vec = get_embedding(query_text, model=model, api_base=api_base)
+
+    _ensure_embedding_table()
+
+    if _pgvector_available:
+        try:
+            return _vector_search_pgvector(query_vec, top_k, min_score, source_tables, owner_id=owner_id)
+        except Exception:
+            logger.warning("pgvector search failed, falling back to Python", exc_info=True)
+
+    return _vector_search_python(query_vec, top_k, min_score, source_tables, owner_id=owner_id)
+
+def _profile_to_text(row: dict) -> str:
+    return f"{row['category']} {row['subject']}: {row['value']}"
+
+def _event_to_text(row: dict) -> str:
+    return f"[{row.get('category', '')}] {row.get('summary', '')}"
+
+def _observation_to_text(row: dict) -> str:
+    subject = row.get("subject", "")
+    content = row.get("content", "")
+    if subject:
+        L = get_labels("context.labels", "en")
+        return f"{content} ({L['topic_prefix']}: {subject})"
+    return content
+
+def _relationship_to_text(row: dict, language: str = "en") -> str:
+    import json as _json
+    L = get_labels("context.labels", language)
+    details = row.get("details", {})
+    if isinstance(details, str):
+        try:
+            details = _json.loads(details)
+        except Exception as e:
+            logger.debug("relationship details parse failed: %s", e)
+            details = {}
+    detail_str = ", ".join(f"{k}: {v}" for k, v in details.items()) if details else ""
+    name = row.get("name") or L.get("unknown_name", "(未知)")
+    text = f"{row.get('relation', '')}: {name}"
+    if detail_str:
+        text += f" ({detail_str})"
+    return text
+
+def _conversation_to_text(row: dict) -> str:
+    return row.get("ai_summary", "") or ""
+
+def _source_tables_for(owner_id: int | None):
+    """Return [(table_name, sql, params, to_text_fn), ...] scoped by owner_id."""
+    if owner_id is None:
+        # legacy / global behaviour
+        return [
+            ("user_profile",
+             "SELECT id, category, subject, value FROM user_profile "
+             "WHERE end_time IS NULL AND rejected = false AND human_end_time IS NULL",
+             (), _profile_to_text),
+            ("event_log",
+             "SELECT id, category, summary FROM event_log "
+             "WHERE expires_at IS NULL OR expires_at > NOW()",
+             (), _event_to_text),
+            ("observations",
+             "SELECT id, content, subject FROM observations WHERE rejected = false ORDER BY id DESC LIMIT 500",
+             (), _observation_to_text),
+            ("relationships",
+             "SELECT id, relation, name, details FROM relationships WHERE status = 'active'",
+             (), _relationship_to_text),
+            ("conversation_turns",
+             "SELECT id, ai_summary FROM conversation_turns "
+             "WHERE ai_summary IS NOT NULL AND ai_summary != '' "
+             "ORDER BY id DESC LIMIT 200",
+             (), _conversation_to_text),
+        ]
+    return [
+        ("user_profile",
+         "SELECT id, category, subject, value FROM user_profile "
+         "WHERE end_time IS NULL AND rejected = false AND human_end_time IS NULL "
+         "AND owner_id = %s",
+         (owner_id,), _profile_to_text),
+        ("event_log",
+         "SELECT id, category, summary FROM event_log "
+         "WHERE (expires_at IS NULL OR expires_at > NOW()) AND owner_id = %s",
+         (owner_id,), _event_to_text),
+        ("observations",
+         "SELECT id, content, subject FROM observations "
+         "WHERE rejected = false AND owner_id = %s "
+         "ORDER BY id DESC LIMIT 500",
+         (owner_id,), _observation_to_text),
+        ("relationships",
+         "SELECT id, relation, name, details FROM relationships "
+         "WHERE status = 'active' AND owner_id = %s",
+         (owner_id,), _relationship_to_text),
+        ("conversation_turns",
+         "SELECT id, ai_summary FROM conversation_turns "
+         "WHERE ai_summary IS NOT NULL AND ai_summary != '' "
+         "AND owner_id = %s "
+         "ORDER BY id DESC LIMIT 200",
+         (owner_id,), _conversation_to_text),
+    ]
+
+
+def embed_all_memories(config: dict, owner_id: int | None = None):
+    emb_cfg = config.get("embedding", {})
+    if not emb_cfg.get("enabled", True):
+        return
+
+    model = emb_cfg.get("model", "")
+    api_base = emb_cfg.get("api_base", "")
+
+    try:
+        get_embedding("test", model=model, api_base=api_base)
+    except Exception as e:
+        logger.debug("Embedding service unreachable, skipping: %s", e)
+        return
+
+    _ensure_embedding_table()
+    conn = get_db_connection()
+
+    total_new = 0
+    total_updated = 0
+    total_skipped = 0
+
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            if owner_id is not None:
+                cur.execute(
+                    "SELECT source_table, source_id, content_hash "
+                    "FROM memory_embeddings WHERE owner_id = %s",
+                    (owner_id,),
+                )
+            else:
+                cur.execute(
+                    "SELECT source_table, source_id, content_hash "
+                    "FROM memory_embeddings"
+                )
+            existing = {
+                (r["source_table"], r["source_id"]): r["content_hash"]
+                for r in cur.fetchall()
+            }
+
+        for table_name, query, query_params, to_text_fn in _source_tables_for(owner_id):
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute(query, query_params)
+                    rows = cur.fetchall()
+            except Exception as e:
+                conn.rollback()
+                logger.warning("source table %s query failed: %s", table_name, e)
+                continue
+
+            for row in rows:
+                text = to_text_fn(row)
+                if not text or not text.strip():
+                    continue
+
+                content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+                key = (table_name, row["id"])
+
+                if key in existing and existing[key] == content_hash:
+                    total_skipped += 1
+                    continue
+
+                try:
+                    embedding = get_embedding(text, model=model, api_base=api_base)
+                except Exception as e:
+                    logger.warning("embedding generation failed for %s/%s: %s", table_name, row["id"], e)
+                    continue
+
+                emb_json = json.dumps(embedding)
+                vec_str = "[" + ",".join(str(v) for v in embedding) + "]" if _pgvector_available else None
+
+                with conn.cursor() as cur:
+                    if key in existing:
+                        if vec_str:
+                            cur.execute(
+                                "UPDATE memory_embeddings "
+                                "SET content_hash=%s, text_content=%s, embedding=%s, "
+                                "    embedding_vec=%s::vector, model=%s, updated_at=NOW() "
+                                "WHERE source_table=%s AND source_id=%s",
+                                (content_hash, text, emb_json, vec_str, model,
+                                 table_name, row["id"]),
+                            )
+                        else:
+                            cur.execute(
+                                "UPDATE memory_embeddings "
+                                "SET content_hash=%s, text_content=%s, embedding=%s, "
+                                "    model=%s, updated_at=NOW() "
+                                "WHERE source_table=%s AND source_id=%s",
+                                (content_hash, text, emb_json, model,
+                                 table_name, row["id"]),
+                            )
+                        total_updated += 1
+                    else:
+                        _row_owner = owner_id if owner_id is not None else 1
+                        if vec_str:
+                            cur.execute(
+                                "INSERT INTO memory_embeddings "
+                                "(owner_id, source_table, source_id, content_hash, text_content, "
+                                " embedding, embedding_vec, model) "
+                                "VALUES (%s, %s, %s, %s, %s, %s, %s::vector, %s)",
+                                (_row_owner, table_name, row["id"], content_hash, text,
+                                 emb_json, vec_str, model),
+                            )
+                        else:
+                            cur.execute(
+                                "INSERT INTO memory_embeddings "
+                                "(owner_id, source_table, source_id, content_hash, text_content, "
+                                " embedding, model) "
+                                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                                (_row_owner, table_name, row["id"], content_hash, text,
+                                 emb_json, model),
+                            )
+                        total_new += 1
+
+                conn.commit()
+
+        _cleanup_orphaned(conn, owner_id=owner_id)
+
+    finally:
+        conn.close()
+
+def _cleanup_orphaned(conn, owner_id: int | None = None):
+    owner_clause = " AND memory_embeddings.owner_id = %s" if owner_id is not None else ""
+    owner_param: tuple = (owner_id,) if owner_id is not None else ()
+    cleanup_queries = {
+        "user_profile": (
+            "DELETE FROM memory_embeddings WHERE source_table='user_profile' "
+            "AND source_id NOT IN (SELECT id FROM user_profile "
+            "WHERE end_time IS NULL AND rejected = false AND human_end_time IS NULL)"
+            + owner_clause,
+            owner_param,
+        ),
+        "event_log": (
+            "DELETE FROM memory_embeddings WHERE source_table='event_log' "
+            "AND source_id NOT IN (SELECT id FROM event_log "
+            "WHERE expires_at IS NULL OR expires_at > NOW())"
+            + owner_clause,
+            owner_param,
+        ),
+        "relationships": (
+            "DELETE FROM memory_embeddings WHERE source_table='relationships' "
+            "AND source_id NOT IN (SELECT id FROM relationships WHERE status='active')"
+            + owner_clause,
+            owner_param,
+        ),
+    }
+    total_cleaned = 0
+    for table, (query, params) in cleanup_queries.items():
+        try:
+            with conn.cursor() as cur:
+                cur.execute(query, params)
+                total_cleaned += cur.rowcount
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            logger.warning("orphan cleanup failed for %s: %s", table, e)
+
+    if total_cleaned > 0:
+        logger.debug("Cleaned %d orphaned embeddings", total_cleaned)

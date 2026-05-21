@@ -1,30 +1,47 @@
-"""Step 7: Trajectory summary generation."""
 
-from datetime import datetime
-from agent.utils.time_context import get_now
+import json
+import asyncio
+from agent.config.prompts import get_prompt, get_labels
 from agent.utils.llm_client import call_llm
-from agent.core.sleep_prompts import get_prompt, get_label
-from agent.storage import load_observations, load_active_events, load_trajectory_summary
-from ._parsing import _parse_json_object
+from agent.utils.time_context import get_now
+from agent.storage import (
+    load_observations, load_trajectory_summary,
+    load_active_events, load_fact_edges,
+    save_fact_edge, save_trajectory_summary,
+)
+from agent.sleep._parsing import _parse_json_array, _parse_json_object
+
+
+def _safe_int(val, default=None):
+    """Coerce LLM-returned value to int."""
+    if isinstance(val, bool):
+        return default
+    if isinstance(val, int):
+        return val
+    if val is None:
+        return default
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return default
 
 
 def generate_trajectory_summary(current_profile: list[dict],
                                 config: dict,
                                 new_observations: list[dict] | None = None,
-                                language: str = "en") -> dict:
-    """Step 7: 生成/更新人物轨迹总结（v14: 使用双层画像）。"""
+                                owner_id: int | None = None) -> dict:
     llm_config = config.get("llm", {})
+    language = config.get("language", "en")
+    L = get_labels("context.labels", language)
 
-    # 格式化画像（双层标签）
     profile_text = ""
     if current_profile:
         for p in current_profile:
-            layer_tag = get_label("layer_confirmed", language) if p.get("layer") == "confirmed" else get_label("layer_suspected", language)
+            layer_tag = L["layer_core"] if p.get("layer") == "confirmed" else L["layer_suspected"]
             profile_text += f"  {layer_tag} [{p['category']}] {p['subject']}: {p['value']}\n"
     else:
-        profile_text = get_label("no_profile", language)
+        profile_text = f"{L['no_profile']}\n"
 
-    # 本次新观察（增量输入）
     new_obs_text = ""
     if new_observations:
         for o in new_observations:
@@ -32,54 +49,140 @@ def generate_trajectory_summary(current_profile: list[dict],
             content = o.get("content", "")
             new_obs_text += f"  [{obs_type}] {content}\n"
     else:
-        new_obs_text = "（本次无新观察）\n"
+        new_obs_text = f"{L['no_new_obs']}\n"
 
-    # 历史观察（全量，帮助理解用户变化轨迹）
-    historical_obs = load_observations(limit=80)
+    historical_obs = load_observations(limit=80, owner_id=owner_id)
     hist_obs_text = ""
     if historical_obs:
         for o in historical_obs:
             time_str = o['created_at'].strftime('%Y-%m-%d') if o.get('created_at') else '?'
             hist_obs_text += f"  [{time_str}] [{o['observation_type']}] {o['content']}\n"
     else:
-        hist_obs_text = "（暂无历史观察）\n"
+        hist_obs_text = f"{L['no_historical']}\n"
 
-    # 加载事件（保留，数量少）
-    events = load_active_events(top_k=10)
+    events = load_active_events(top_k=10, owner_id=owner_id)
     event_text = ""
     if events:
         for e in events:
             event_text += f"  [{e['category']}] {e['summary']}\n"
     else:
-        event_text = "（暂无事件）\n"
+        event_text = f"{L['no_events']}\n"
 
-    # 加载上一次轨迹
-    prev_trajectory = load_trajectory_summary()
+    prev_trajectory = load_trajectory_summary(owner_id=owner_id)
     prev_text = ""
     if prev_trajectory:
         prev_text = (
-            f"上一次轨迹总结：\n"
-            f"  阶段: {prev_trajectory['life_phase']}\n"
-            f"  特征: {prev_trajectory['phase_characteristics']}\n"
-            f"  方向: {prev_trajectory['trajectory_direction']}\n"
-            f"  稳定性: {prev_trajectory['stability_assessment']}\n"
-            f"  动向: {prev_trajectory.get('recent_momentum', '')}\n"
-            f"  总结: {prev_trajectory.get('full_summary', '')}\n"
+            f"{L['prev_trajectory']}：\n"
+            f"  {L['phase']}: {prev_trajectory.get('life_phase', '')}\n"
+            f"  {L['characteristics']}: {prev_trajectory.get('phase_characteristics', '')}\n"
+            f"  {L['direction']}: {prev_trajectory.get('trajectory_direction', '')}\n"
+            f"  {L['stability']}: {prev_trajectory.get('stability_assessment', '')}\n"
+            f"  {L['recent_momentum']}: {prev_trajectory.get('recent_momentum', '')}\n"
+            f"  {L['summary']}: {prev_trajectory.get('full_summary', '')}\n"
         )
     else:
-        prev_text = "上一次轨迹总结：（首次生成）\n"
+        prev_text = f"{L['prev_trajectory']}：{L['first_generation']}\n"
 
     user_content = (
-        f"当前系统时间：{get_now().strftime('%Y-%m-%d %H:%M')}（今年是{get_now().year}年）\n\n"
-        f"当前画像（活跃假设）：\n{profile_text}\n"
-        f"本次新观察：\n{new_obs_text}\n"
-        f"历史观察（完整时间线）：\n{hist_obs_text}\n"
-        f"近期事件：\n{event_text}\n"
+        f"[system_time: {get_now().strftime('%Y-%m-%dT%H:%M')}]\n\n"
+        f"{L['active_profile']}：\n{profile_text}\n"
+        f"{L['new_observations']}：\n{new_obs_text}\n"
+        f"{L['historical_obs']}：\n{hist_obs_text}\n"
+        f"{L['recent_events']}：\n{event_text}\n"
         f"{prev_text}"
     )
     messages = [
-        {"role": "system", "content": get_prompt("trajectory_summary", language)},
+        {"role": "system", "content": get_prompt("sleep.trajectory_summary", language)},
         {"role": "user", "content": user_content},
     ]
     raw = call_llm(messages, llm_config)
     return _parse_json_object(raw)
+
+
+def extract_fact_edges(affected_fact_ids: set[int], current_profile: list[dict],
+                       config: dict, owner_id: int | None = None) -> list[dict]:
+    if not affected_fact_ids:
+        return []
+    llm_config = config.get("llm", {})
+    language = config.get("language", "en")
+    L = get_labels("context.labels", language)
+    prompt_text = get_prompt("sleep.extract_fact_edges", language)
+
+    profile_map = {p["id"]: p for p in current_profile if p.get("id")}
+    valid_ids = set(profile_map.keys())
+
+    affected_facts = [profile_map[fid] for fid in affected_fact_ids if fid in profile_map]
+    if not affected_facts:
+        return []
+
+    affected_text = "\n".join(
+        f"  id={p['id']} [{p['category']}] {p['subject']}: {p['value']}"
+        for p in affected_facts
+    )
+
+    context_profile = sorted(current_profile, key=lambda p: p.get("updated_at") or "", reverse=True)[:60]
+    profile_text = "\n".join(
+        f"  id={p['id']} [{p['category']}] {p['subject']}: {p['value']}"
+        for p in context_profile if p.get("id")
+    )
+
+    existing_edges = load_fact_edges(list(affected_fact_ids), owner_id=owner_id)
+    edges_text = ""
+    if existing_edges:
+        edges_text = "\n".join(
+            f"  {e['source_fact_id']}({e.get('src_category','')}/{e.get('src_subject','')}) "
+            f"--[{e['edge_type']}]--> "
+            f"{e['target_fact_id']}({e.get('tgt_category','')}/{e.get('tgt_subject','')}): "
+            f"{e.get('description', '')}"
+            for e in existing_edges[:20]
+        )
+
+    user_content = (
+        f"{L['new_changed_facts']}:\n{affected_text}\n\n"
+        f"{L['existing_profile_facts']}:\n{profile_text}\n\n"
+        f"{L['existing_edges']}:\n{edges_text or '(none)'}\n"
+    )
+
+    messages = [
+        {"role": "system", "content": prompt_text},
+        {"role": "user", "content": user_content},
+    ]
+
+    raw = call_llm(messages, llm_config)
+    edges = _parse_json_array(raw)
+
+    saved = []
+    for e in edges:
+        if not isinstance(e, dict):
+            continue
+        src = _safe_int(e.get("source_id"))
+        tgt = _safe_int(e.get("target_id"))
+        etype = e.get("edge_type", "")
+        if src is None or tgt is None or not etype or src == tgt:
+            continue
+        if src not in valid_ids or tgt not in valid_ids:
+            continue
+        if etype not in ("causes", "related_to", "contradicts", "temporal_sequence", "supports", "part_of"):
+            continue
+        desc = e.get("description", "")
+        try:
+            conf = min(1.0, max(0.0, float(e.get("confidence", 0.8))))
+        except (ValueError, TypeError):
+            conf = 0.8
+        save_fact_edge(src, tgt, etype, desc, conf,
+                       owner_id=owner_id if owner_id is not None else 1)
+        saved.append(e)
+    return saved
+
+
+# ── Async wrappers ──
+
+async def extract_fact_edges_async(affected_fact_ids: set[int], current_profile: list[dict],
+                                    config: dict) -> list[dict]:
+    return await asyncio.to_thread(extract_fact_edges, affected_fact_ids, current_profile, config)
+
+
+async def generate_trajectory_summary_async(current_profile: list[dict],
+                                             config: dict,
+                                             new_observations: list[dict] | None = None) -> dict:
+    return await asyncio.to_thread(generate_trajectory_summary, current_profile, config, new_observations)

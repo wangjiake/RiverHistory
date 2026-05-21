@@ -25,6 +25,14 @@ Shares the same database with the [Riverse](https://github.com/wangjiake/JKRiver
 
 > **Cost warning:** When using a remote LLM API (OpenAI, Anthropic, etc.), conversations with lots of code or very long messages can consume significant tokens. Review and clean your export data before running. Local models (Ollama) are free.
 
+### What's New (May 2026)
+
+- **Multi-owner support** — every business table now carries an `owner_id`. When the database is shared with [JKRiver](https://github.com/wangjiake/JKRiver)'s family-mode setup, RiverHistory can process imports for one family member at a time. Pick the target account with `--owner-name <name>` on `run.py`. Default single-account installs are unchanged.
+- **`hypotheses` table dropped** — its lifecycle was folded into `user_profile.layer` ('suspected' → 'confirmed'). Storage code now uses `save_profile_fact()` exclusively.
+- **Prompts moved** — multilingual prompts are now in `agent/config/prompts/{zh,en,ja}.yaml` (loaded via `agent.config.prompts.get_prompt`). The old `agent/core/sleep_prompts.py` is removed.
+- **Sleep pipeline split** — `agent/sleep/orchestration.py` now delegates to four step modules (`steps_extract.py`, `steps_analyze.py`, `steps_maintain.py`, `steps_output.py`). Public entry point `run(owner_id=...)` is unchanged for CLI callers.
+- **Admin account seeded on init** — `setup_db.py` creates an `accounts` row at id=1 with name taken from `settings.yaml.admin_name` or your OS user (`whoami`). Idempotent — re-running is safe.
+
 ### Features
 
 - Import your locally exported ChatGPT / Claude / Gemini conversation history into the database
@@ -80,16 +88,19 @@ python import_data.py --gemini "data/Gemini/My Activity.html"
 # Note: The Gemini export filename varies by language. Adjust the filename accordingly.
 
 # 6. Run profile extraction
-#    Format: python run.py <source> <count>
-#    source: chatgpt / claude / gemini / all
-#    count:  a number = process N conversations starting from the oldest
-#            max     = process all conversations
+#    Format: python run.py <source> <count> [--owner-name <name>]
+#    source:       chatgpt / claude / gemini / all
+#    count:        a number = process N conversations starting from the oldest
+#                  max     = process all conversations
+#    --owner-name: which family member (account) to write the extracted data under.
+#                  Optional — auto-selected if only one account exists.
+#                  Required if the DB has multiple accounts (e.g. shared with JKRiver in family mode).
 #    All commands process conversations in chronological order (oldest first)
 
-python run.py chatgpt 50       # ChatGPT only, 50 oldest conversations
-python run.py claude max       # Claude only, all conversations
-python run.py gemini 100       # Gemini only, 100 oldest conversations
-python run.py all max           # All 3 sources merged together, sorted by time, process all (excludes demo)
+python run.py chatgpt 50                          # ChatGPT only, 50 oldest, auto-pick owner
+python run.py claude max --owner-name jk          # Claude all, written under 'jk'
+python run.py gemini 100 --owner-name wife        # Gemini 100 oldest, written under 'wife'
+python run.py all max                              # All 3 sources mixed by time, auto-pick owner
 
 # 7. View results
 python web.py --db Riverse
@@ -100,7 +111,7 @@ ACCESS_TOKEN=your-secret python web.py --db Riverse
 # First visit will redirect to an unlock page — enter the token to access
 ```
 
-> **Note:** Each `run.py` execution automatically clears all profile tables before writing new data. Source data tables are not affected. Safe to re-run at any time.
+> **Note:** `run.py` no longer clears profile tables automatically. To start over, run `python reset_db.py` first (it leaves your imported source data — chatgpt/claude/gemini/demo tables — untouched).
 
 ### No Chat Data? Try the Demo
 
@@ -162,20 +173,26 @@ python reset_db.py --db mydb        # Specify database name
 │   └── demo3.json       # Demo: Jake Morrison (English, 20 sessions)
 ├── agent/
 │   ├── perceive.py      # Perception module — classify user input
-│   ├── config/          # Configuration loader
-│   ├── storage/         # Database operations (modular subpackage)
+│   ├── config/
+│   │   ├── __init__.py  # settings.yaml loader
+│   │   ├── owner.py     # --owner-name → owner_id resolution (reads `accounts`)
+│   │   ├── prompts.py   # Multilingual prompt loader
+│   │   └── prompts/     # zh.yaml / en.yaml / ja.yaml prompt strings
+│   ├── storage/         # Database operations (modular subpackage, owner_id-aware)
 │   │   ├── _db.py       # Connection & helpers
-│   │   ├── profile.py   # Profile facts CRUD
-│   │   ├── hypotheses.py # Hypothesis lifecycle
+│   │   ├── profile.py   # Profile facts CRUD (replaces old hypotheses module)
 │   │   ├── observations.py, events.py, conversation.py, ...
 │   │   └── parsing.py   # History format parsers (Claude/ChatGPT/Gemini)
-│   ├── utils/           # LLM client
-│   ├── core/
-│   │   └── sleep_prompts.py  # Multilingual prompts (zh/en/ja)
+│   ├── utils/           # LLM client, embedding, clustering
 │   └── sleep/           # Offline extraction pipeline (modular subpackage)
-│       ├── orchestration.py  # Main run() entry point
-│       ├── extractors.py     # Observation & fact extraction
-│       ├── analysis.py       # Behavioral analysis & cross-verification
+│       ├── orchestration.py  # run(owner_id) — single-owner entry point
+│       ├── _pipeline_state.py # Shared state struct (carries owner_id)
+│       ├── steps_extract.py  # Step 1-2: extract observations + tags
+│       ├── steps_analyze.py  # Step 3-5: classify, behavior, cross-verify
+│       ├── steps_maintain.py # Step 6-7: edges, expiry, maturity decay
+│       ├── steps_output.py   # Step 8-end: user_model, trajectory, snapshot
+│       ├── extractors.py     # LLM-driven extraction helpers
+│       ├── analysis.py       # LLM-driven analysis helpers
 │       ├── disputes.py       # Contradiction resolution
 │       └── trajectory.py     # Life trajectory summary
 └── templates/

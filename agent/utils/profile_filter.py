@@ -1,7 +1,11 @@
 
-from datetime import datetime, timedelta
+import logging
+
+from datetime import timedelta
 from agent.utils.time_context import get_now
-from agent.core.sleep_prompts import get_label
+from agent.config.prompts import get_labels
+
+logger = logging.getLogger(__name__)
 
 
 def prepare_profile(profile, query_text=None, config=None,
@@ -10,14 +14,42 @@ def prepare_profile(profile, query_text=None, config=None,
     过滤 → 排序 → 截断
 
     1. 过滤：去掉 superseded_by is not None 的条目
-    2. 排序：fallback 评分（confirmed +3, 近30天 +2, mention>=3 +1）
+    2. 排序：
+       - 若 embedding 可用且 query_text 非空：用 vector_search 按相似度排序
+       - 未匹配到的条目用 fallback 评分
+       - 两组合并，去重，取前 max_entries
     3. rest_summary：剩余按 category 计数归并
 
     Returns: (top_entries: list[dict], rest_summary: str)
     """
+    L = get_labels("context.labels", language)
+
     active = [p for p in profile if not p.get("superseded_by")]
     if not active:
         return [], ""
+
+    vector_ranked_ids = []
+    if query_text and config and config.get("embedding", {}).get("enabled"):
+        try:
+            from agent.utils.embedding import vector_search
+            results = vector_search(
+                query_text, config,
+                source_tables=["user_profile"], top_k=max_entries,
+            )
+            vector_ranked_ids = [r["source_id"] for r in results]
+        except Exception:
+            logger.warning("vector search for profile failed", exc_info=True)
+
+    id_to_entry = {p["id"]: p for p in active if p.get("id")}
+
+    top = []
+    seen_ids = set()
+
+    for sid in vector_ranked_ids:
+        entry = id_to_entry.get(sid)
+        if entry and sid not in seen_ids:
+            top.append(entry)
+            seen_ids.add(sid)
 
     now = get_now()
     thirty_days_ago = now - timedelta(days=30)
@@ -34,17 +66,22 @@ def prepare_profile(profile, query_text=None, config=None,
             score += 1
         return score
 
-    active.sort(key=_fallback_score, reverse=True)
+    remaining = [p for p in active if p.get("id") not in seen_ids]
+    remaining.sort(key=_fallback_score, reverse=True)
 
-    top = active[:max_entries]
-    rest = active[max_entries:]
+    for p in remaining:
+        if len(top) >= max_entries:
+            break
+        top.append(p)
+        seen_ids.add(p.get("id"))
 
+    rest = [p for p in active if p.get("id") not in seen_ids]
     rest_summary = ""
     if rest:
         from collections import Counter
         cat_counts = Counter(p.get("category", "?") for p in rest)
         parts = [f"{cat}×{cnt}" for cat, cnt in cat_counts.most_common()]
-        rest_summary = "（其余 " + ", ".join(parts) + "）"
+        rest_summary = L.get("rest_summary_prefix", "（其余") + " " + ", ".join(parts) + "）"
 
     return top, rest_summary
 
@@ -59,6 +96,7 @@ def format_profile_text(profile, keywords=None, config=None,
 
     Returns: str（top-K 完整行 + 摘要行）
     """
+    L = get_labels("context.labels", language)
     top_entries, rest_summary = prepare_profile(
         profile, query_text=keywords, config=config,
         max_entries=max_entries, language=language,
@@ -71,9 +109,9 @@ def format_profile_text(profile, keywords=None, config=None,
         if detail == "full":
             layer = p.get("layer", "suspected")
             if layer == "confirmed":
-                tag = get_label("layer_confirmed", language)
+                tag = L["layer_core"]
             else:
-                tag = get_label("layer_suspected", language)
+                tag = L["layer_suspected"]
             lines.append(f"  {tag} [{p['category']}] {p['subject']}: {p['value']}")
         else:
             lines.append(f"  [{p['category']}] {p['subject']}: {p['value']}")

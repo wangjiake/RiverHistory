@@ -1,65 +1,42 @@
-"""Observation storage."""
-
-from ._db import get_db_connection, _as_dicts
 from psycopg2.extras import RealDictCursor
+from agent.utils.time_context import get_now
+from ._db import get_db_connection
 
 
 def save_observation(session_id: str, observation_type: str, content: str,
                      subject: str | None = None, context: str | None = None,
                      source_turn_id: int | None = None,
-                     reference_time=None) -> int | None:
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cur:
-            if reference_time:
-                cur.execute(
-                    "INSERT INTO observations "
-                    "(session_id, observation_type, content, subject, context, source_turn_id, created_at) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
-                    (session_id, observation_type, content, subject, context, source_turn_id, reference_time),
-                )
-            else:
-                cur.execute(
-                    "INSERT INTO observations "
-                    "(session_id, observation_type, content, subject, context, source_turn_id) "
-                    "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
-                    (session_id, observation_type, content, subject, context, source_turn_id),
-                )
-            row = cur.fetchone()
-            obs_id = row[0] if row else None
-        conn.commit()
-        return obs_id
-    finally:
-        conn.close()
-
-
-def update_observation_classification(obs_id: int, classification: str):
+                     owner_id: int = 1):
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "UPDATE observations SET classification = %s WHERE id = %s",
-                (classification, obs_id),
+                "INSERT INTO observations "
+                "(owner_id, session_id, observation_type, content, subject, context, source_turn_id, created_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                (owner_id, session_id, observation_type, content, subject, context, source_turn_id, get_now()),
             )
         conn.commit()
     finally:
         conn.close()
 
-
 def load_observations(session_id: str | None = None, subject: str | None = None,
-                      limit: int = 50) -> list[dict]:
+                      limit: int = 50, owner_id: int | None = None) -> list[dict]:
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            conditions = []
+            conditions = ["rejected = false"]
             params: list = []
+            if owner_id is not None:
+                conditions.append("owner_id = %s")
+                params.append(owner_id)
             if session_id:
                 conditions.append("session_id = %s")
                 params.append(session_id)
             if subject:
                 conditions.append("subject = %s")
                 params.append(subject)
-            where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+            where = "WHERE " + " AND ".join(conditions)
             params.append(limit)
             cur.execute(
                 f"SELECT id, session_id, observation_type, content, subject, context, created_at "
@@ -67,24 +44,31 @@ def load_observations(session_id: str | None = None, subject: str | None = None,
                 f"ORDER BY created_at DESC LIMIT %s",
                 params,
             )
-            return _as_dicts(cur.fetchall())
+            return list(cur.fetchall())
     finally:
         conn.close()
 
-
 def load_observations_by_time_range(pivot_time, keywords: set | None = None,
-                                     limit: int = 200) -> dict:
+                                     limit: int = 200,
+                                     owner_id: int | None = None) -> dict:
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            conditions = ["rejected = false"]
+            params: list = []
+            if owner_id is not None:
+                conditions.append("owner_id = %s")
+                params.append(owner_id)
+            where = "WHERE " + " AND ".join(conditions)
+            params.append(limit)
             cur.execute(
-                "SELECT id, session_id, observation_type, content, subject, "
-                "context, created_at "
-                "FROM observations "
-                "ORDER BY created_at ASC LIMIT %s",
-                (limit,),
+                f"SELECT id, session_id, observation_type, content, subject, "
+                f"context, created_at "
+                f"FROM observations {where} "
+                f"ORDER BY created_at ASC LIMIT %s",
+                params,
             )
-            all_obs = _as_dicts(cur.fetchall())
+            all_obs = list(cur.fetchall())
     finally:
         conn.close()
 

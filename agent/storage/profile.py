@@ -1,122 +1,137 @@
-"""Profile storage: user_profile, user_model, trajectory, relationships, fact_edges."""
+"""Profile storage — user facts, relationships, trajectory, user model.
+
+All write functions follow the commit/transaction proxy pattern:
+each function calls conn.commit() once at the end.  When called inside
+a transaction() block, get_db_connection() returns a _TransactionProxy
+that makes commit() a no-op, so the real commit happens when the
+transaction block exits.  This keeps functions self-contained for
+standalone use while allowing batched atomic transactions.
+"""
 
 import json
-import logging
 from datetime import datetime, timedelta
-from agent.utils.time_context import get_now
-from ._db import get_db_connection, _as_dict, _as_dicts
-
-logger = logging.getLogger(__name__)
-from ._synonyms import _get_category_synonyms, _get_subject_synonyms
 from psycopg2.extras import RealDictCursor
+from agent.utils.time_context import get_now
+from ._db import get_db_connection
+
+from ._synonyms import _get_category_synonyms, _get_subject_synonyms
 
 
 def upsert_profile(category: str, field: str, value: str,
-                   hypothesis_id: int | None = None):
+                   hypothesis_id: int | None = None, owner_id: int = 1):
     now = get_now()
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO current_profile (category, field, value, hypothesis_id, confirmed_at, updated_at) "
-                "VALUES (%s, %s, %s, %s, %s, %s) "
-                "ON CONFLICT (category, field, value) DO UPDATE "
+                "INSERT INTO current_profile (owner_id, category, field, value, hypothesis_id, confirmed_at, updated_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s) "
+                "ON CONFLICT (owner_id, category, field, value) DO UPDATE "
                 "SET hypothesis_id = %s, updated_at = %s",
-                (category, field, value, hypothesis_id, now, now,
+                (owner_id, category, field, value, hypothesis_id, now, now,
                  hypothesis_id, now),
             )
         conn.commit()
     finally:
         conn.close()
 
-
-def load_current_profile() -> list[dict]:
+def load_current_profile(owner_id: int | None = None) -> list[dict]:
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(
-                "SELECT id, category, field, value, hypothesis_id, confirmed_at, updated_at "
-                "FROM current_profile "
-                "ORDER BY category, field"
-            )
-            return _as_dicts(cur.fetchall())
-    finally:
-        conn.close()
-
-
-def remove_profile(category: str, field: str, value: str | None = None):
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cur:
-            if value:
+            if owner_id is not None:
                 cur.execute(
-                    "DELETE FROM current_profile WHERE category = %s AND field = %s AND value = %s",
-                    (category, field, value),
+                    "SELECT id, category, field, value, hypothesis_id, confirmed_at, updated_at "
+                    "FROM current_profile WHERE owner_id = %s "
+                    "ORDER BY category, field",
+                    (owner_id,),
                 )
             else:
                 cur.execute(
-                    "DELETE FROM current_profile WHERE category = %s AND field = %s",
-                    (category, field),
+                    "SELECT id, category, field, value, hypothesis_id, confirmed_at, updated_at "
+                    "FROM current_profile "
+                    "ORDER BY category, field"
+                )
+            return list(cur.fetchall())
+    finally:
+        conn.close()
+
+def remove_profile(category: str, field: str, value: str | None = None, owner_id: int | None = None):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            owner_clause = " AND owner_id = %s" if owner_id is not None else ""
+            owner_param: tuple = (owner_id,) if owner_id is not None else ()
+            if value:
+                cur.execute(
+                    f"DELETE FROM current_profile WHERE category = %s AND field = %s AND value = %s{owner_clause}",
+                    (category, field, value, *owner_param),
+                )
+            else:
+                cur.execute(
+                    f"DELETE FROM current_profile WHERE category = %s AND field = %s{owner_clause}",
+                    (category, field, *owner_param),
                 )
         conn.commit()
     finally:
         conn.close()
 
-
 def upsert_user_model(dimension: str, assessment: str,
-                      evidence_summary: str | None = None,
-                      reference_time=None):
-    if isinstance(evidence_summary, (dict, list)):
-        evidence_summary = json.dumps(evidence_summary, ensure_ascii=False)
-    now = reference_time or get_now()
+                      evidence_summary: str | None = None, owner_id: int = 1):
+    now = get_now()
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO user_model (dimension, assessment, evidence_summary, updated_at) "
-                "VALUES (%s, %s, %s, %s) "
-                "ON CONFLICT (dimension) DO UPDATE "
+                "INSERT INTO user_model (owner_id, dimension, assessment, evidence_summary, updated_at) "
+                "VALUES (%s, %s, %s, %s, %s) "
+                "ON CONFLICT (owner_id, dimension) DO UPDATE "
                 "SET assessment = %s, evidence_summary = %s, updated_at = %s",
-                (dimension, assessment, evidence_summary, now,
+                (owner_id, dimension, assessment, evidence_summary, now,
                  assessment, evidence_summary, now),
             )
         conn.commit()
     finally:
         conn.close()
 
-
-def load_user_model() -> list[dict]:
+def load_user_model(owner_id: int | None = None) -> list[dict]:
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(
-                "SELECT id, dimension, assessment, evidence_summary, updated_at "
-                "FROM user_model ORDER BY dimension"
-            )
-            return _as_dicts(cur.fetchall())
+            if owner_id is not None:
+                cur.execute(
+                    "SELECT id, dimension, assessment, evidence_summary, updated_at "
+                    "FROM user_model WHERE owner_id = %s ORDER BY dimension",
+                    (owner_id,),
+                )
+            else:
+                cur.execute(
+                    "SELECT id, dimension, assessment, evidence_summary, updated_at "
+                    "FROM user_model ORDER BY dimension"
+                )
+            return list(cur.fetchall())
     finally:
         conn.close()
 
-
-def save_trajectory_summary(trajectory: dict, session_count: int = 0,
-                            reference_time=None):
+def save_trajectory_summary(trajectory: dict, session_count: int = 0, owner_id: int = 1):
     def _text(val):
         if isinstance(val, (dict, list)):
             return json.dumps(val, ensure_ascii=False)
         return val if val is not None else ""
 
-    now = reference_time or get_now()
+    now = get_now()
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO trajectory_summary "
-                "(life_phase, phase_characteristics, trajectory_direction, "
+                "(owner_id, life_phase, phase_characteristics, trajectory_direction, "
                 " stability_assessment, key_anchors, volatile_areas, "
                 " recent_momentum, predicted_shifts, full_summary, "
                 " session_count, created_at, updated_at) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 (
+                    owner_id,
                     _text(trajectory.get("life_phase", "")),
                     _text(trajectory.get("phase_characteristics", "")),
                     _text(trajectory.get("trajectory_direction", "")),
@@ -133,24 +148,28 @@ def save_trajectory_summary(trajectory: dict, session_count: int = 0,
     finally:
         conn.close()
 
-
-def load_trajectory_summary() -> dict | None:
+def load_trajectory_summary(owner_id: int | None = None) -> dict | None:
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(
-                "SELECT * FROM trajectory_summary ORDER BY updated_at DESC LIMIT 1"
-            )
-            row = cur.fetchone()
-            return dict(row) if row else None
+            if owner_id is not None:
+                cur.execute(
+                    "SELECT * FROM trajectory_summary WHERE owner_id = %s "
+                    "ORDER BY updated_at DESC LIMIT 1",
+                    (owner_id,),
+                )
+            else:
+                cur.execute(
+                    "SELECT * FROM trajectory_summary ORDER BY updated_at DESC LIMIT 1"
+                )
+            return cur.fetchone()
     finally:
         conn.close()
 
-
 def save_or_update_relationship(name: str | None, relation: str,
                                  details: dict | None = None,
-                                 reference_time=None) -> int:
-    now = reference_time or get_now()
+                                 owner_id: int = 1) -> int:
+    now = get_now()
     details = details or {}
     conn = get_db_connection()
     try:
@@ -159,15 +178,17 @@ def save_or_update_relationship(name: str | None, relation: str,
                 cur.execute(
                     "SELECT id, details, mention_count FROM relationships "
                     "WHERE name = %s AND relation = %s AND status = 'active' "
+                    "AND owner_id = %s "
                     "ORDER BY id LIMIT 1",
-                    (name, relation),
+                    (name, relation, owner_id),
                 )
             else:
                 cur.execute(
                     "SELECT id, details, mention_count FROM relationships "
                     "WHERE name IS NULL AND relation = %s AND status = 'active' "
+                    "AND owner_id = %s "
                     "ORDER BY id LIMIT 1",
-                    (relation,),
+                    (relation, owner_id),
                 )
             row = cur.fetchone()
             if row:
@@ -179,43 +200,48 @@ def save_or_update_relationship(name: str | None, relation: str,
                     "last_mentioned_at = %s WHERE id = %s",
                     (json.dumps(merged, ensure_ascii=False), mc + 1, now, rid),
                 )
-                conn.commit()
-                return rid
             else:
                 cur.execute(
-                    "INSERT INTO relationships (name, relation, details, "
+                    "INSERT INTO relationships (owner_id, name, relation, details, "
                     "first_mentioned_at, last_mentioned_at, mention_count) "
-                    "VALUES (%s, %s, %s, %s, %s, 1) RETURNING id",
-                    (name, relation, json.dumps(details, ensure_ascii=False), now, now),
+                    "VALUES (%s, %s, %s, %s, %s, %s, 1) RETURNING id",
+                    (owner_id, name, relation, json.dumps(details, ensure_ascii=False), now, now),
                 )
                 rid = cur.fetchone()[0]
-                conn.commit()
-                return rid
+        conn.commit()
+        return rid
     finally:
         conn.close()
 
-
-def load_relationships(status: str = "active") -> list[dict]:
+def load_relationships(status: str = "active", owner_id: int | None = None) -> list[dict]:
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(
-                "SELECT id, name, relation, details, mention_count, "
-                "first_mentioned_at, last_mentioned_at "
-                "FROM relationships WHERE status = %s "
-                "ORDER BY last_mentioned_at DESC",
-                (status,),
-            )
-            return _as_dicts(cur.fetchall())
+            if owner_id is not None:
+                cur.execute(
+                    "SELECT id, name, relation, details, mention_count, "
+                    "first_mentioned_at, last_mentioned_at "
+                    "FROM relationships WHERE status = %s AND owner_id = %s "
+                    "ORDER BY last_mentioned_at DESC",
+                    (status, owner_id),
+                )
+            else:
+                cur.execute(
+                    "SELECT id, name, relation, details, mention_count, "
+                    "first_mentioned_at, last_mentioned_at "
+                    "FROM relationships WHERE status = %s "
+                    "ORDER BY last_mentioned_at DESC",
+                    (status,),
+                )
+            return list(cur.fetchall())
     finally:
         conn.close()
-
 
 def save_profile_fact(category: str, subject: str, value: str,
                       source_type: str = 'stated',
                       decay_days: int | None = None,
                       evidence: list | None = None,
-                      start_time=None) -> int:
+                      start_time=None, owner_id: int = 1) -> int:
     if not start_time:
         start_time = get_now()
     now = start_time
@@ -228,7 +254,7 @@ def save_profile_fact(category: str, subject: str, value: str,
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            existing = _find_current_fact_cursor(cur, category, subject)
+            existing = _find_current_fact_cursor(cur, category, subject, owner_id=owner_id)
 
             if existing:
                 if existing["value"].strip().lower() == value.strip().lower():
@@ -243,16 +269,15 @@ def save_profile_fact(category: str, subject: str, value: str,
                         (new_mc, json.dumps(merged, ensure_ascii=False),
                          now, new_expires, existing["id"]),
                     )
-                    conn.commit()
-                    return existing["id"]
-                elif existing["category"] in ("兴趣",):
+                    result_id = existing["id"]
+                elif existing["category"] in _get_category_synonyms("interest"):
                     cur.execute(
                         "SELECT id, evidence, mention_count FROM user_profile "
-                        "WHERE category = %s AND subject = %s "
+                        "WHERE category = %s AND subject = %s AND owner_id = %s "
                         "AND LOWER(TRIM(value)) = LOWER(TRIM(%s)) "
                         "AND end_time IS NULL AND human_end_time IS NULL "
                         "AND (rejected IS NULL OR rejected = false) LIMIT 1",
-                        (existing["category"], existing["subject"], value),
+                        (existing["category"], existing["subject"], owner_id, value),
                     )
                     exact_match = cur.fetchone()
                     if exact_match:
@@ -266,76 +291,74 @@ def save_profile_fact(category: str, subject: str, value: str,
                             (new_mc, json.dumps(merged_ev, ensure_ascii=False),
                              now, new_expires, exact_match["id"]),
                         )
-                        conn.commit()
-                        return exact_match["id"]
+                        result_id = exact_match["id"]
                     else:
                         cur.execute(
                             "INSERT INTO user_profile "
-                            "(category, subject, value, layer, source_type, "
+                            "(owner_id, category, subject, value, layer, source_type, "
                             " start_time, decay_days, expires_at, evidence, "
                             " mention_count, created_at, updated_at) "
-                            "VALUES (%s, %s, %s, 'suspected', %s, %s, %s, %s, %s, "
+                            "VALUES (%s, %s, %s, %s, 'suspected', %s, %s, %s, %s, %s, "
                             "1, %s, %s) "
                             "RETURNING id",
-                            (category, subject, value, source_type,
+                            (owner_id, category, subject, value, source_type,
                              start_time, decay_days, expires_at,
                              json.dumps(evidence, ensure_ascii=False),
                              now, now),
                         )
-                        new_id = cur.fetchone()["id"]
-                        conn.commit()
-                        return new_id
+                        result_id = cur.fetchone()["id"]
                 else:
                     cur.execute(
                         "INSERT INTO user_profile "
-                        "(category, subject, value, layer, source_type, "
+                        "(owner_id, category, subject, value, layer, source_type, "
                         " start_time, decay_days, expires_at, evidence, "
                         " mention_count, created_at, updated_at, "
                         " supersedes) "
-                        "VALUES (%s, %s, %s, 'suspected', %s, %s, %s, %s, %s, "
+                        "VALUES (%s, %s, %s, %s, 'suspected', %s, %s, %s, %s, %s, "
                         "1, %s, %s, %s) "
                         "RETURNING id",
-                        (category, subject, value, source_type,
+                        (owner_id, category, subject, value, source_type,
                          start_time, decay_days, expires_at,
                          json.dumps(evidence, ensure_ascii=False),
                          now, now, existing["id"]),
                     )
-                    new_id = cur.fetchone()["id"]
+                    result_id = cur.fetchone()["id"]
                     cur.execute(
                         "UPDATE user_profile SET superseded_by = %s WHERE id = %s",
-                        (new_id, existing["id"]),
+                        (result_id, existing["id"]),
                     )
-                    conn.commit()
-                    return new_id
             else:
                 cur.execute(
                     "INSERT INTO user_profile "
-                    "(category, subject, value, layer, source_type, "
+                    "(owner_id, category, subject, value, layer, source_type, "
                     " start_time, decay_days, expires_at, evidence, "
                     " mention_count, created_at, updated_at) "
-                    "VALUES (%s, %s, %s, 'suspected', %s, %s, %s, %s, %s, "
+                    "VALUES (%s, %s, %s, %s, 'suspected', %s, %s, %s, %s, %s, "
                     "1, %s, %s) "
                     "RETURNING id",
-                    (category, subject, value, source_type,
+                    (owner_id, category, subject, value, source_type,
                      start_time, decay_days, expires_at,
                      json.dumps(evidence, ensure_ascii=False),
                      now, now),
                 )
-                new_id = cur.fetchone()["id"]
-                conn.commit()
-                return new_id
+                result_id = cur.fetchone()["id"]
+        conn.commit()
+        return result_id
     finally:
         conn.close()
 
-
-def close_time_period(fact_id: int, end_time=None, superseded_by: int | None = None,
-                      reference_time=None):
-    now = reference_time or get_now()
+def close_time_period(fact_id: int, end_time=None, superseded_by: int | None = None):
+    now = get_now()
     if not end_time:
         end_time = now
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
+            cur.execute("SELECT human_end_time FROM user_profile WHERE id = %s", (fact_id,))
+            row = cur.fetchone()
+            if row and row[0] is not None:
+                return
+
             if superseded_by:
                 cur.execute(
                     "UPDATE user_profile SET end_time = %s, updated_at = %s, "
@@ -352,7 +375,6 @@ def close_time_period(fact_id: int, end_time=None, superseded_by: int | None = N
     finally:
         conn.close()
 
-
 def confirm_profile_fact(fact_id: int, reference_time=None):
     now = reference_time if reference_time else get_now()
     conn = get_db_connection()
@@ -366,7 +388,6 @@ def confirm_profile_fact(fact_id: int, reference_time=None):
         conn.commit()
     finally:
         conn.close()
-
 
 def add_evidence(fact_id: int, evidence_entry: dict, reference_time=None):
     now = reference_time if reference_time else get_now()
@@ -394,21 +415,21 @@ def add_evidence(fact_id: int, evidence_entry: dict, reference_time=None):
     finally:
         conn.close()
 
-
-def _find_current_fact_cursor(cur, category: str, subject: str):
+def _find_current_fact_cursor(cur, category: str, subject: str, owner_id: int | None = None):
     _FIELDS = ("id, category, subject, value, layer, source_type, "
                "start_time, end_time, decay_days, expires_at, evidence, "
                "mention_count, created_at, updated_at, confirmed_at, "
                "superseded_by, supersedes")
     _ORDER = "ORDER BY (superseded_by IS NULL) DESC, created_at DESC LIMIT 1"
-
-    _REJECT = "AND (rejected IS NULL OR rejected = false) AND human_end_time IS NULL"
+    _OWNER = " AND owner_id = %s" if owner_id is not None else ""
+    _OWNER_PARAMS: tuple = (owner_id,) if owner_id is not None else ()
 
     cur.execute(
         f"SELECT {_FIELDS} FROM user_profile "
         f"WHERE category = %s AND subject = %s AND end_time IS NULL "
-        f"{_REJECT} {_ORDER}",
-        (category, subject),
+        f"AND rejected = false AND human_end_time IS NULL{_OWNER} "
+        f"{_ORDER}",
+        (category, subject, *_OWNER_PARAMS),
     )
     row = cur.fetchone()
     if row:
@@ -420,8 +441,9 @@ def _find_current_fact_cursor(cur, category: str, subject: str):
         cur.execute(
             f"SELECT {_FIELDS} FROM user_profile "
             f"WHERE category = ANY(%s) AND subject = ANY(%s) AND end_time IS NULL "
-            f"{_REJECT} {_ORDER}",
-            (cat_syns, subj_syns),
+            f"AND rejected = false AND human_end_time IS NULL{_OWNER} "
+            f"{_ORDER}",
+            (cat_syns, subj_syns, *_OWNER_PARAMS),
         )
         row = cur.fetchone()
         if row:
@@ -430,86 +452,100 @@ def _find_current_fact_cursor(cur, category: str, subject: str):
     cur.execute(
         f"SELECT {_FIELDS} FROM user_profile "
         f"WHERE category = ANY(%s) AND end_time IS NULL "
-        f"{_REJECT} "
+        f"AND rejected = false AND human_end_time IS NULL{_OWNER} "
         f"AND (subject ILIKE '%%' || %s || '%%' OR %s ILIKE '%%' || subject || '%%') "
         f"{_ORDER}",
-        (cat_syns, subject, subject),
+        (cat_syns, *_OWNER_PARAMS, subject, subject),
     )
     row = cur.fetchone()
     if row:
         return row
     return None
 
-
-def find_current_fact(category: str, subject: str) -> dict | None:
+def find_current_fact(category: str, subject: str, owner_id: int | None = None) -> dict | None:
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            row = _find_current_fact_cursor(cur, category, subject)
-            return _as_dict(row) if row else None
+            return _find_current_fact_cursor(cur, category, subject, owner_id=owner_id)
     finally:
         conn.close()
 
-
-def load_suspected_profile() -> list[dict]:
+def load_suspected_profile(owner_id: int | None = None) -> list[dict]:
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            conditions = ["layer = 'suspected'", "end_time IS NULL",
+                          "rejected = false", "human_end_time IS NULL"]
+            params: list = []
+            if owner_id is not None:
+                conditions.append("owner_id = %s")
+                params.append(owner_id)
             cur.execute(
-                "SELECT id, category, subject, value, layer, source_type, "
-                "start_time, decay_days, expires_at, evidence, mention_count, "
-                "created_at, updated_at, supersedes "
-                "FROM user_profile "
-                "WHERE layer = 'suspected' AND end_time IS NULL "
-                "AND (rejected IS NULL OR rejected = false) AND human_end_time IS NULL "
-                "ORDER BY category, subject"
+                f"SELECT id, category, subject, value, layer, source_type, "
+                f"start_time, decay_days, expires_at, evidence, mention_count, "
+                f"created_at, updated_at, supersedes "
+                f"FROM user_profile "
+                f"WHERE {' AND '.join(conditions)} "
+                f"ORDER BY category, subject",
+                params,
             )
-            return _as_dicts(cur.fetchall())
+            return list(cur.fetchall())
     finally:
         conn.close()
 
-
-def load_confirmed_profile() -> list[dict]:
+def load_confirmed_profile(owner_id: int | None = None) -> list[dict]:
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            conditions = ["layer = 'confirmed'", "end_time IS NULL",
+                          "rejected = false", "human_end_time IS NULL"]
+            params: list = []
+            if owner_id is not None:
+                conditions.append("owner_id = %s")
+                params.append(owner_id)
             cur.execute(
-                "SELECT id, category, subject, value, layer, source_type, "
-                "start_time, decay_days, expires_at, evidence, mention_count, "
-                "created_at, updated_at, confirmed_at, supersedes "
-                "FROM user_profile "
-                "WHERE layer = 'confirmed' AND end_time IS NULL "
-                "ORDER BY category, subject"
+                f"SELECT id, category, subject, value, layer, source_type, "
+                f"start_time, decay_days, expires_at, evidence, mention_count, "
+                f"created_at, updated_at, confirmed_at, supersedes "
+                f"FROM user_profile "
+                f"WHERE {' AND '.join(conditions)} "
+                f"ORDER BY category, subject",
+                params,
             )
-            return _as_dicts(cur.fetchall())
+            return list(cur.fetchall())
     finally:
         conn.close()
 
-
-def load_full_current_profile(exclude_superseded: bool = False) -> list[dict]:
+def load_full_current_profile(exclude_superseded: bool = False,
+                              owner_id: int | None = None) -> list[dict]:
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            where = "WHERE end_time IS NULL AND (rejected IS NULL OR rejected = false) AND human_end_time IS NULL"
+            conditions = ["end_time IS NULL", "rejected = false", "human_end_time IS NULL"]
+            params: list = []
             if exclude_superseded:
-                where += " AND superseded_by IS NULL"
+                conditions.append("superseded_by IS NULL")
+            if owner_id is not None:
+                conditions.append("owner_id = %s")
+                params.append(owner_id)
             cur.execute(
                 f"SELECT id, category, subject, value, layer, source_type, "
                 f"start_time, decay_days, expires_at, evidence, mention_count, "
                 f"created_at, updated_at, confirmed_at, superseded_by, supersedes "
                 f"FROM user_profile "
-                f"{where} "
+                f"WHERE {' AND '.join(conditions)} "
                 f"ORDER BY CASE layer WHEN 'confirmed' THEN 1 WHEN 'suspected' THEN 2 END, "
-                f"category, subject"
+                f"category, subject",
+                params,
             )
-            return _as_dicts(cur.fetchall())
+            return list(cur.fetchall())
     finally:
         conn.close()
 
-
 def load_timeline(category: str | None = None,
                   subject: str | None = None,
-                  include_rejected: bool = False) -> list[dict]:
+                  include_rejected: bool = False,
+                  owner_id: int | None = None) -> list[dict]:
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -523,53 +559,65 @@ def load_timeline(category: str | None = None,
             if subject:
                 conditions.append("subject = %s")
                 params.append(subject)
+            if owner_id is not None:
+                conditions.append("owner_id = %s")
+                params.append(owner_id)
             where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
             cur.execute(
                 f"SELECT id, category, subject, value, layer, source_type, "
                 f"start_time, end_time, decay_days, expires_at, evidence, "
                 f"mention_count, created_at, updated_at, confirmed_at, "
-                f"superseded_by, supersedes "
+                f"superseded_by, supersedes, rejected, human_end_time "
                 f"FROM user_profile {where} "
                 f"ORDER BY category, subject, start_time",
                 params,
             )
-            return _as_dicts(cur.fetchall())
+            return list(cur.fetchall())
     finally:
         conn.close()
 
-
-def get_expired_facts(reference_time=None) -> list[dict]:
+def get_expired_facts(reference_time=None, owner_id: int | None = None) -> list[dict]:
     ref = reference_time if reference_time else get_now()
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            conditions = ["expires_at IS NOT NULL", "expires_at < %s",
+                          "end_time IS NULL", "rejected = false", "human_end_time IS NULL"]
+            params: list = [ref]
+            if owner_id is not None:
+                conditions.append("owner_id = %s")
+                params.append(owner_id)
             cur.execute(
-                "SELECT id, category, subject, value, layer, source_type, "
-                "start_time, decay_days, expires_at, evidence, mention_count, "
-                "created_at, updated_at, superseded_by, supersedes "
-                "FROM user_profile "
-                "WHERE expires_at IS NOT NULL AND expires_at < %s "
-                "AND end_time IS NULL "
-                "AND (rejected IS NULL OR rejected = false) AND human_end_time IS NULL "
-                "ORDER BY expires_at ASC",
-                (ref,)
+                f"SELECT id, category, subject, value, layer, source_type, "
+                f"start_time, decay_days, expires_at, evidence, mention_count, "
+                f"created_at, updated_at, superseded_by, supersedes "
+                f"FROM user_profile "
+                f"WHERE {' AND '.join(conditions)} "
+                f"ORDER BY expires_at ASC",
+                params,
             )
-            return _as_dicts(cur.fetchall())
+            return list(cur.fetchall())
     finally:
         conn.close()
 
-
-def load_disputed_facts() -> list[dict]:
+def load_disputed_facts(owner_id: int | None = None) -> list[dict]:
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            conditions = ["superseded_by IS NOT NULL", "end_time IS NULL",
+                          "rejected = false", "human_end_time IS NULL"]
+            params: list = []
+            if owner_id is not None:
+                conditions.append("owner_id = %s")
+                params.append(owner_id)
             cur.execute(
-                "SELECT id, category, subject, value, layer, source_type, "
-                "start_time, decay_days, expires_at, evidence, mention_count, "
-                "created_at, updated_at, confirmed_at, superseded_by "
-                "FROM user_profile "
-                "WHERE superseded_by IS NOT NULL AND end_time IS NULL "
-                "ORDER BY category, subject"
+                f"SELECT id, category, subject, value, layer, source_type, "
+                f"start_time, decay_days, expires_at, evidence, mention_count, "
+                f"created_at, updated_at, confirmed_at, superseded_by "
+                f"FROM user_profile "
+                f"WHERE {' AND '.join(conditions)} "
+                f"ORDER BY category, subject",
+                params,
             )
             old_records = list(cur.fetchall())
 
@@ -580,7 +628,8 @@ def load_disputed_facts() -> list[dict]:
                     "SELECT id, category, subject, value, layer, source_type, "
                     "start_time, decay_days, expires_at, evidence, mention_count, "
                     "created_at, updated_at, supersedes "
-                    "FROM user_profile WHERE id = %s AND end_time IS NULL",
+                    "FROM user_profile WHERE id = %s AND end_time IS NULL "
+                    "AND human_end_time IS NULL",
                     (new_id,),
                 )
                 new = cur.fetchone()
@@ -589,7 +638,6 @@ def load_disputed_facts() -> list[dict]:
             return pairs
     finally:
         conn.close()
-
 
 def resolve_dispute(old_fact_id: int, new_fact_id: int, accept_new: bool,
                     resolution_time=None):
@@ -624,7 +672,6 @@ def resolve_dispute(old_fact_id: int, new_fact_id: int, accept_new: bool,
     finally:
         conn.close()
 
-
 def update_fact_decay(fact_id: int, new_decay_days: int, reference_time=None):
     now = reference_time if reference_time else get_now()
     new_expires = now + timedelta(days=new_decay_days)
@@ -636,23 +683,6 @@ def update_fact_decay(fact_id: int, new_decay_days: int, reference_time=None):
                 "updated_at = %s WHERE id = %s",
                 (new_decay_days, new_expires, now, fact_id),
             )
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def delete_fact_edges_for(fact_id: int):
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cur:
-            try:
-                cur.execute(
-                    "DELETE FROM fact_edges WHERE source_fact_id = %s OR target_fact_id = %s",
-                    (fact_id, fact_id),
-                )
-            except Exception:
-                logger.error("delete_fact_edges_for failed (fact_id=%s)", fact_id, exc_info=True)
-                raise
         conn.commit()
     finally:
         conn.close()

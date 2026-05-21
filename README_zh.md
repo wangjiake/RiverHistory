@@ -25,6 +25,14 @@
 
 > **费用提醒：** 使用远端 LLM API（OpenAI、Anthropic 等）时，包含大量代码或超长消息的对话会消耗大量 token。建议运行前清理导出数据中不必要的内容。本地模型（Ollama）无费用。
 
+### 2026 年 5 月更新
+
+- **多账号支持** — 所有业务表新增 `owner_id` 列。与 [JKRiver](https://github.com/wangjiake/JKRiver) 的家庭多用户模式共享数据库时，可以一次只处理一个家人的数据。用 `run.py --owner-name <name>` 指定写入哪个账号；单账号场景保持原行为不变。
+- **删除 `hypotheses` 表** — 其生命周期合并进 `user_profile.layer`（'suspected' → 'confirmed'），统一通过 `save_profile_fact()` 写入。
+- **提示词文件搬家** — 多语言提示词移到 `agent/config/prompts/{zh,en,ja}.yaml`，通过 `agent.config.prompts.get_prompt` 读取。旧的 `agent/core/sleep_prompts.py` 已删除。
+- **Sleep 流水线拆分** — `agent/sleep/orchestration.py` 现在分发到 4 个 step 模块（`steps_extract.py` / `steps_analyze.py` / `steps_maintain.py` / `steps_output.py`）。CLI 入口 `run(owner_id=...)` 签名不变。
+- **初始化时自动种 admin 账号** — `setup_db.py` 会在 `accounts` 表创建 id=1 的管理员，name 优先取 `settings.yaml.admin_name`，否则取系统用户 (`whoami`)。重复运行幂等。
+
 ### 功能
 
 - 将你从 ChatGPT / Claude / Gemini 导出的本地对话记录导入数据库
@@ -80,15 +88,18 @@ python import_data.py --gemini "data/Gemini/我的活动记录.html"
 # 注意：Gemini 导出文件名因语言而异，请根据实际文件名修改命令
 
 # 6. 运行画像提取
-#    格式: python run.py <源> <数量>
-#    源:   chatgpt / claude / gemini / all
-#    数量: 数字 = 从最早开始处理 N 条, max = 处理全部
+#    格式: python run.py <源> <数量> [--owner-name <名字>]
+#    源:           chatgpt / claude / gemini / all
+#    数量:         数字 = 从最早开始处理 N 条, max = 处理全部
+#    --owner-name: 指定写入到哪个家庭成员（accounts.name）名下。
+#                  可选 — 库里只有一个账号时自动选；
+#                  与 JKRiver 家庭模式共享库时必填，避免数据混到错的人头上。
 #    所有命令都按对话时间从旧到新的顺序处理
 
-python run.py chatgpt 50       # 只处理 ChatGPT，从最早的开始，处理 50 条
-python run.py claude max       # 只处理 Claude，全部处理
-python run.py gemini 100       # 只处理 Gemini，从最早的开始，处理 100 条
-python run.py all max           # 三个源的数据混在一起，按时间从旧到新，全部处理（不含 demo）
+python run.py chatgpt 50                          # ChatGPT 50 条，自动选 owner
+python run.py claude max --owner-name jk          # Claude 全部，写到 jk 账号
+python run.py gemini 100 --owner-name wife        # Gemini 100 条，写到 wife 账号
+python run.py all max                              # 三源混合按时间，自动选 owner
 
 # 7. 查看结果
 python web.py --db Riverse
@@ -99,7 +110,7 @@ ACCESS_TOKEN=your-secret python web.py --db Riverse
 # 首次访问会跳转到验证页面，输入令牌后进入
 ```
 
-> **注意：** 每次运行 `run.py` 会自动清空所有画像表再重新写入，源数据表不受影响。可以放心重复运行。
+> **注意：** `run.py` 不再自动清表。想从零开始处理，先跑 `python reset_db.py` —— 它只清画像/会话相关的表，原始导入数据（chatgpt/claude/gemini/demo）不会被动。
 
 ### 没有对话数据？用 Demo 快速体验
 
@@ -161,20 +172,26 @@ python reset_db.py --db mydb        # 指定数据库
 │   └── demo3.json       # 测试数据：Jake Morrison（英文，20 组）
 ├── agent/
 │   ├── perceive.py      # 感知模块 — 分类用户输入
-│   ├── config/          # 配置加载
-│   ├── storage/         # 数据库操作（模块化子包）
+│   ├── config/
+│   │   ├── __init__.py  # settings.yaml 加载器
+│   │   ├── owner.py     # --owner-name → owner_id 解析（读 accounts 表）
+│   │   ├── prompts.py   # 多语言提示词加载器
+│   │   └── prompts/     # zh.yaml / en.yaml / ja.yaml 提示词文本
+│   ├── storage/         # 数据库操作（按 owner_id 隔离的模块化子包）
 │   │   ├── _db.py       # 连接与工具函数
-│   │   ├── profile.py   # 画像事实 CRUD
-│   │   ├── hypotheses.py # 假说生命周期
+│   │   ├── profile.py   # 画像事实 CRUD（取代旧的 hypotheses 模块）
 │   │   ├── observations.py, events.py, conversation.py, ...
 │   │   └── parsing.py   # 历史格式解析（Claude/ChatGPT/Gemini）
-│   ├── utils/           # LLM 客户端
-│   ├── core/
-│   │   └── sleep_prompts.py  # 多语言提示词（zh/en/ja）
+│   ├── utils/           # LLM 客户端、embedding、clustering
 │   └── sleep/           # 离线提取流程（模块化子包）
-│       ├── orchestration.py  # 主 run() 入口
-│       ├── extractors.py     # 观测与事实提取
-│       ├── analysis.py       # 行为分析与交叉验证
+│       ├── orchestration.py  # run(owner_id) — 单 owner 入口
+│       ├── _pipeline_state.py # 步骤间共享 state（携带 owner_id）
+│       ├── steps_extract.py  # 步骤 1-2：提取观测 + 标签
+│       ├── steps_analyze.py  # 步骤 3-5：分类、行为、交叉验证
+│       ├── steps_maintain.py # 步骤 6-7：边、过期、成熟度衰减
+│       ├── steps_output.py   # 步骤 8-：user_model、轨迹、快照
+│       ├── extractors.py     # LLM 抽取辅助函数
+│       ├── analysis.py       # LLM 分析辅助函数
 │       ├── disputes.py       # 矛盾解决
 │       └── trajectory.py     # 人生轨迹摘要
 └── templates/

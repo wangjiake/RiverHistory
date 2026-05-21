@@ -1,15 +1,23 @@
-"""Batch processing entry point."""
+"""Batch processing entry point.
 
+Single-owner CLI: all writes from this run go under one owner_id. Pick the
+owner with --owner-name (or rely on auto-select when only one account
+exists). See agent/config/owner.py for resolution rules.
+"""
+
+import argparse
 import sys
 import uuid
 from datetime import datetime, timedelta, timezone
 
 from agent.config import load_config
+from agent.config.owner import resolve_owner
 from agent.perceive import perceive
 from agent.storage import (
-    configure_db, get_db_connection, parse_turns,
+    get_db_connection, parse_turns,
     save_raw_conversation, save_conversation_turn,
 )
+from agent.utils.time_context import set_current_time
 from psycopg2.extras import RealDictCursor
 
 
@@ -94,7 +102,7 @@ def mark_processed(source: str, row_id: int):
         conn.close()
 
 
-def process_one(row: dict, config: dict, idx: int, total: int):
+def process_one(row: dict, config: dict, idx: int, total: int, owner_id: int = 1):
     source = row["source"]
     llm_config = config.get("llm", {})
 
@@ -129,9 +137,11 @@ def process_one(row: dict, config: dict, idx: int, total: int):
             user_input_at=timestamp,
             assistant_reply=assistant_reply,
             assistant_reply_at=timestamp,
+            owner_id=owner_id,
         )
 
         save_conversation_turn({
+            "owner_id": owner_id,
             "session_id": session_id,
             "session_created_at": session_created_at,
             "user_input": user_input,
@@ -153,32 +163,34 @@ def process_one(row: dict, config: dict, idx: int, total: int):
 
 
 def main():
-    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
-        print("Usage: python run.py <source> <count>")
-        print()
-        print("  source:  chatgpt | claude | gemini | demo | all")
-        print("  count:   number or 'max' (process all)")
-        print()
-        print("Examples:")
-        print("  python run.py chatgpt 50    # ChatGPT oldest 50")
-        print("  python run.py claude max    # Claude all")
-        print("  python run.py gemini 100    # Gemini oldest 100")
-        print("  python run.py demo max      # Demo test data")
-        print("  python run.py all max       # All sources mixed by time")
-        print("  python run.py all 200       # All sources mixed, oldest 200")
-        return
-
-    source = sys.argv[1].lower()
-    count_arg = sys.argv[2] if len(sys.argv) > 2 else "max"
-    count = 0 if count_arg.lower() == "max" else int(count_arg)
-
     valid_sources = SOURCES + ["demo", "all"]
-    if source not in valid_sources:
-        print(f"Error: unknown source '{source}'. Use: chatgpt | claude | gemini | demo | all")
-        return
+    p = argparse.ArgumentParser(
+        description="Process historical chats and run sleep extraction. "
+                    "All output (observations, profile facts, memory snapshots) "
+                    "is scoped to the chosen owner.",
+        epilog=(
+            "Examples:\n"
+            "  python run.py chatgpt 50                  # 50 oldest, auto-pick owner\n"
+            "  python run.py claude max --owner-name jk  # all, write under jk\n"
+            "  python run.py all 200 --owner-name wife   # mixed, write under wife\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p.add_argument("source", choices=valid_sources,
+                   help="chatgpt | claude | gemini | demo | all")
+    p.add_argument("count", nargs="?", default="max",
+                   help="number or 'max' (default: max)")
+    p.add_argument("--owner-name", dest="owner_name", default=None,
+                   help="Which family member to write data under. "
+                        "Omit if only one account exists in the DB.")
+    args = p.parse_args()
+
+    source = args.source.lower()
+    count = 0 if str(args.count).lower() == "max" else int(args.count)
 
     config = load_config()
-    configure_db(config["db_name"], config["db_user"], config["db_host"])
+    owner_id = resolve_owner(args.owner_name)
+    print(f"\n[owner] writing under owner_id={owner_id} ({args.owner_name or '<auto>'})")
 
     # Check LLM reachability
     import requests
@@ -221,10 +233,18 @@ def main():
         return
 
     for idx, row in enumerate(rows, 1):
-        process_one(row, config, idx, len(rows))
+        process_one(row, config, idx, len(rows), owner_id=owner_id)
 
         print(f"\n  --- Sleep processing ({idx}/{len(rows)}) ---")
-        run_sleep(fallback_time=row["conversation_time"])
+        # Anchor "now" to the conversation's time so decay/expiry math reflects
+        # the historical moment, not the actual clock — same behaviour as the
+        # old run_sleep(fallback_time=...) API that no longer exists.
+        if row["conversation_time"]:
+            set_current_time(row["conversation_time"])
+        try:
+            run_sleep(owner_id=owner_id)
+        finally:
+            set_current_time(None)
         print(f"  --- Done ---")
 
         mark_processed(row["source"], row["id"])

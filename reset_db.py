@@ -11,7 +11,7 @@ TABLES_TO_RESET = [
     "session_tags",
     "observations",
     "user_profile",
-    "hypotheses",
+    # hypotheses removed — replaced by user_profile.layer column
     "current_profile",
     "user_model",
     "strategies",
